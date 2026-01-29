@@ -12,22 +12,18 @@ def main():
 
 
 @main.command("check")
-@click.option(
-    "--script",
-    "script_path",
-    required=True,
+@click.argument(
+    "script",
     type=click.Path(path_type=Path, exists=True),
-    help="Path to the profiled script (package_name inferred from parent of script dir).",
 )
 @click.option(
     "--threshold",
-    default=0.62,
+    default=None,
     type=float,
-    show_default=True,
-    help="Max allowed duration in seconds; exit 1 if exceeded.",
+    help="Max allowed duration in seconds; exit 1 if exceeded. Omit to skip check.",
 )
-def check(script_path: Path, threshold: float) -> None:
-    script = script_path.resolve()
+def check(script: Path, threshold: float | None) -> None:
+    script = script.resolve()
     assert script.parent.name == "profiling"
     assert script.parent.parent.name == "tests"
     package_name = script.parent.parent.parent.name.replace("-", "_")
@@ -56,7 +52,7 @@ def check(script_path: Path, threshold: float) -> None:
         }
     )
 
-    if duration > threshold:
+    if threshold is not None and duration > threshold:
         print(
             f"ERROR: Profiling time {duration:.3f}s exceeds threshold {threshold:.3f}s "
             f"for script {script_basename}"
