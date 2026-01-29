@@ -17,16 +17,12 @@ def main():
 def parse_duration(path: Path) -> float:
     """Extract duration from pyinstrument output; line like 'Duration: 2.315     CPU time: 2.216'."""
     text = path.read_text()
+    print(text)
     match = re.search(r"Duration:\s+([\d.]+)", text)
     return float(match.group(1)) if match else 0.0
 
 
-@main.command("run")
-@click.argument(
-    "script",
-    type=click.Path(path_type=Path, exists=True),
-)
-def run(script: Path) -> None:
+def run_profiler(script: Path) -> None:
     """Run script 4 times with pyinstrument; profile0 warmup, profile1–3 for averaging."""
     script_str = str(script.resolve())
     is_darwin = platform.system() == "Darwin"
@@ -40,6 +36,16 @@ def run(script: Path) -> None:
         else:
             cmd = f"pyinstrument {shlex.quote(script_str)}"
             subprocess.run(["script", "-q", "-c", cmd, str(out)], check=True)
+
+
+@main.command("run")
+@click.argument(
+    "script",
+    type=click.Path(path_type=Path, exists=True),
+)
+def run(script: Path) -> None:
+    """Run script 4 times with pyinstrument; profile0 warmup, profile1–3 for averaging."""
+    run_profiler(script)
 
 
 @main.command("check")
@@ -69,7 +75,7 @@ def check(script: Path, threshold: float | None, no_run: bool) -> None:
     script_basename = script.name
 
     if not no_run:
-        run(script)
+        run_profiler(script)
 
     # Last 3 runs (profile1–3); profile0 warms the cache.
     durations = [parse_duration(Path(f"profile{i}.txt")) for i in range(1, 4)]
