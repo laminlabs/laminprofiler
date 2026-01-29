@@ -1,5 +1,7 @@
 import importlib
 import re
+import shlex
+import subprocess
 from pathlib import Path
 
 import click
@@ -9,6 +11,20 @@ import lamindb as ln
 @click.group()
 def main():
     """LaminProfiler."""
+
+
+@main.command("run")
+@click.argument(
+    "script",
+    type=click.Path(path_type=Path, exists=True),
+)
+def run(script: Path) -> None:
+    """Run script 4 times with pyinstrument; write profile1.txt … profile4.txt."""
+    script_str = str(script.resolve())
+    cmd = f"pyinstrument {shlex.quote(script_str)}"
+    for i in range(1, 5):
+        out = Path(f"profile{i}.txt")
+        subprocess.run(["script", "-q", "-c", cmd, str(out)], check=True)
 
 
 @main.command("check")
