@@ -27,17 +27,16 @@ def check():
 
     print(content)
     print(f"Extracted duration: {duration:.3f}s")
-    task = ln.Record.get(name=task_name)
-    record = ln.Record(type=task).save()
-    record.features.add_values(
+    laminprofiler = ln.Record.get(name="LaminProfiler")
+    package = ln.Record.get(name=package_name, type=laminprofiler, is_type=True).save()
+    task = ln.Record.get(name=task_name, type=package, is_type=True).save()
+    measurement = ln.Record(type=task).save()
+    measurement.features.add_values(
         {
-            "package_name": package_name,
-            "task_name": task_name,
             "package_version": version,
             "duration_in_sec": duration,
         }
     )
-    ln.finish()
 
     if duration > threshold:
         print(
