@@ -22,6 +22,7 @@ def main():
     type=float,
     help="Max allowed duration in seconds; exit 1 if exceeded. Omit to skip check.",
 )
+@ln.flow()
 def check(script: Path, threshold: float | None) -> None:
     script = script.resolve()
     assert script.parent.name == "profiling"
