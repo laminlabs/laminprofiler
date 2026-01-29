@@ -20,10 +20,10 @@ def main():
     type=click.Path(path_type=Path, exists=True),
 )
 def run(script: Path) -> None:
-    """Run script 4 times with pyinstrument; write profile1.txt … profile4.txt."""
+    """Run script 4 times with pyinstrument; write profile0.txt … profile3.txt."""
     script_str = str(script.resolve())
     is_darwin = platform.system() == "Darwin"
-    for i in range(1, 5):
+    for i in range(4):
         out = Path(f"profile{i}.txt")
         if is_darwin:
             # macOS: script [-q] file command [args...]; no -c.
