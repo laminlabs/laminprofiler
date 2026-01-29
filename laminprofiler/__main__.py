@@ -1,4 +1,5 @@
 import importlib
+import platform
 import re
 import shlex
 import subprocess
@@ -21,10 +22,19 @@ def main():
 def run(script: Path) -> None:
     """Run script 4 times with pyinstrument; write profile1.txt … profile4.txt."""
     script_str = str(script.resolve())
-    cmd = f"pyinstrument {shlex.quote(script_str)}"
+    is_darwin = platform.system() == "Darwin"
     for i in range(1, 5):
         out = Path(f"profile{i}.txt")
-        subprocess.run(["script", "-q", "-c", cmd, str(out)], check=True)
+        if is_darwin:
+            # macOS: script [-q] file command [args...]; no -c.
+            subprocess.run(
+                ["script", "-q", str(out), "pyinstrument", script_str],
+                check=True,
+            )
+        else:
+            # Linux: script -q -c "command" file.
+            cmd = f"pyinstrument {shlex.quote(script_str)}"
+            subprocess.run(["script", "-q", "-c", cmd, str(out)], check=True)
 
 
 @main.command("check")
