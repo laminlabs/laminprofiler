@@ -27,15 +27,23 @@ def run_profiler(script: Path) -> None:
     script_str = str(script.resolve())
     is_darwin = platform.system() == "Darwin"
     for i in range(4):
+        print(f"Running script {i}...")
         out = Path(f"profile{i}.txt")
         if is_darwin:
             subprocess.run(
                 ["script", "-q", str(out), "pyinstrument", script_str],
                 check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
         else:
             cmd = f"pyinstrument {shlex.quote(script_str)}"
-            subprocess.run(["script", "-q", "-c", cmd, str(out)], check=True)
+            subprocess.run(
+                ["script", "-q", "-c", cmd, str(out)],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
 
 
 @main.command("run")
