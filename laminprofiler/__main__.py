@@ -17,7 +17,6 @@ def main():
 def parse_duration(path: Path) -> float:
     """Extract duration from pyinstrument output; line like 'Duration: 2.315     CPU time: 2.216'."""
     text = path.read_text()
-    print(text)
     match = re.search(r"Duration:\s+([\d.]+)", text)
     return float(match.group(1)) if match else 0.0
 
@@ -73,9 +72,8 @@ def run(script: Path) -> None:
     is_flag=True,
     help="Skip running the profiler; use existing profile1–3.txt.",
 )
+@ln.flow("BVQ42qdoymVS")
 def check(script: Path, threshold: float | None, no_run: bool) -> None:
-    ln.track("BVQ42qdoymVS")
-
     script = script.resolve()
     assert script.parent.name == "profiling"
     assert script.parent.parent.name == "tests"
@@ -110,8 +108,6 @@ def check(script: Path, threshold: float | None, no_run: bool) -> None:
             f"for script {script_basename}"
         )
         raise SystemExit(1)
-
-    ln.finish()
 
 
 if __name__ == "__main__":
