@@ -17,6 +17,9 @@ def main():
 def parse_duration(path: Path) -> float:
     """Extract duration from pyinstrument output; line like 'Duration: 2.315     CPU time: 2.216'."""
     text = path.read_text()
+    # below prints the pyinstrament report
+    # keep it here! it's formatted for human readability
+    print(text)
     match = re.search(r"Duration:\s+([\d.]+)", text)
     return float(match.group(1)) if match else 0.0
 
@@ -26,7 +29,7 @@ def run_profiler(script: Path) -> None:
     script_str = str(script.resolve())
     is_darwin = platform.system() == "Darwin"
     for i in range(4):
-        print(f"Running script {i}...")
+        print(f"running script {i}...")
         out = Path(f"profile{i}.txt")
         if is_darwin:
             subprocess.run(
@@ -90,7 +93,10 @@ def check(script: Path, threshold: float | None, no_run: bool) -> None:
     module = importlib.import_module(package_name, package=".")
     version = module.__version__
 
-    print(f"Durations: {[f'{d:.3f}s' for d in durations]} → avg {duration:.3f}s")
+    print("first duration: ", parse_duration(Path("profile0.txt")))
+    print(
+        f"measured durations: {[f'{d:.3f}s' for d in durations]} → avg {duration:.3f}s"
+    )
     laminprofiler = ln.Record.get(name="LaminProfiler")
     package = ln.Record.get(name=package_name, type=laminprofiler, is_type=True).save()
     task = ln.Record.get(name=script_basename, type=package, is_type=True).save()
@@ -108,6 +114,10 @@ def check(script: Path, threshold: float | None, no_run: bool) -> None:
             f"for script {script_basename}"
         )
         raise SystemExit(1)
+
+    # clean up profile files
+    for i in range(4):
+        Path(f"profile{i}.txt").unlink()
 
 
 if __name__ == "__main__":
