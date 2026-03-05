@@ -8,6 +8,8 @@ from pathlib import Path
 import click
 import lamindb as ln
 
+ln.connect("laminlabs/lamindata")
+
 
 @click.group()
 def main():
@@ -121,5 +123,4 @@ def check(script: Path, threshold: float | None, no_run: bool) -> None:
 
 
 if __name__ == "__main__":
-    assert ln.setup.settings.instance.slug == "laminlabs/lamindata"
     main()
