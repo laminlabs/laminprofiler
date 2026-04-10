@@ -26,11 +26,13 @@ def parse_duration(path: Path) -> float:
     return float(match.group(1)) if match else 0.0
 
 
-def run_profiler(script: Path) -> None:
-    """Run script 4 times with pyinstrument; profile0 warmup, profile1–3 for averaging."""
+def run_profiler(script: Path, repeats: int) -> None:
+    """Run script with pyinstrument; profile0 warmup, remaining runs for averaging."""
     script_str = str(script.resolve())
     is_darwin = platform.system() == "Darwin"
-    for i in range(4):
+    if repeats == 1:
+        print("WARNING: --repeats=1 disables cache warming; timing may be noisier.")
+    for i in range(repeats):
         print(f"running script {i}...")
         out = Path(f"profile{i}.txt")
         if is_darwin:
@@ -55,9 +57,16 @@ def run_profiler(script: Path) -> None:
     "script",
     type=click.Path(path_type=Path, exists=True),
 )
-def run(script: Path) -> None:
-    """Run script 4 times with pyinstrument; profile0 warmup, profile1–3 for averaging."""
-    run_profiler(script)
+@click.option(
+    "--repeats",
+    default=4,
+    type=click.IntRange(min=1),
+    show_default=True,
+    help="Number of profiling runs. With repeats > 1, first run is warmup.",
+)
+def run(script: Path, repeats: int) -> None:
+    """Run script with pyinstrument; profile0 warmup if repeats > 1."""
+    run_profiler(script, repeats)
 
 
 @main.command("check")
@@ -75,10 +84,17 @@ def run(script: Path) -> None:
     "--no-run",
     "no_run",
     is_flag=True,
-    help="Skip running the profiler; use existing profile1–3.txt.",
+    help="Skip running the profiler; use existing profile files.",
+)
+@click.option(
+    "--repeats",
+    default=4,
+    type=click.IntRange(min=1),
+    show_default=True,
+    help="Number of profiling runs. With repeats > 1, first run is warmup.",
 )
 @ln.flow("BVQ42qdoymVS")
-def check(script: Path, threshold: float | None, no_run: bool) -> None:
+def check(script: Path, threshold: float | None, no_run: bool, repeats: int) -> None:
     script = script.resolve()
     assert script.parent.name == "profiling"
     assert script.parent.parent.name == "tests"
@@ -86,11 +102,16 @@ def check(script: Path, threshold: float | None, no_run: bool) -> None:
     script_basename = script.name
 
     if not no_run:
-        run_profiler(script)
+        run_profiler(script, repeats)
 
-    # Last 3 runs (profile1–3); profile0 warms the cache.
-    durations = [parse_duration(Path(f"profile{i}.txt")) for i in range(1, 4)]
-    duration = sum(durations) / 3
+    if repeats == 1:
+        if no_run:
+            print("WARNING: --repeats=1 disables cache warming; timing may be noisier.")
+        durations = [parse_duration(Path("profile0.txt"))]
+    else:
+        # Exclude warmup run (profile0) from averaging.
+        durations = [parse_duration(Path(f"profile{i}.txt")) for i in range(1, repeats)]
+    duration = sum(durations) / len(durations)
 
     module = importlib.import_module(package_name, package=".")
     version = module.__version__
@@ -118,7 +139,7 @@ def check(script: Path, threshold: float | None, no_run: bool) -> None:
         raise SystemExit(1)
 
     # clean up profile files
-    for i in range(4):
+    for i in range(repeats):
         Path(f"profile{i}.txt").unlink()
 
 
