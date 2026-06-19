@@ -62,6 +62,7 @@ def current_commit_hash16() -> str | None:
         ).strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
         return None
+    # 1 in a million collision probability (0.0001%) for 6.07 million commits
     return commit_hash[:16] if commit_hash else None
 
 
