@@ -1,4 +1,5 @@
 import importlib
+import os
 import platform
 import re
 import shlex
@@ -8,6 +9,7 @@ from pathlib import Path
 import click
 import lamindb as ln
 
+SHOULD_WRITE_RECORDS = os.getenv("GITHUB_EVENT_NAME") == "push"
 ln.connect("laminlabs/lamindata")
 
 
@@ -120,16 +122,19 @@ def check(script: Path, threshold: float | None, no_run: bool, repeats: int) -> 
     print(
         f"measured durations: {[f'{d:.3f}s' for d in durations]} → avg {duration:.3f}s"
     )
-    laminprofiler = ln.Record.get(name="LaminProfiler")
-    package = ln.Record.get(name=package_name, type=laminprofiler, is_type=True).save()
-    task = ln.Record.get(name=script_basename, type=package, is_type=True).save()
-    measurement = ln.Record(type=task).save()
-    measurement.features.add_values(
-        {
-            "package_version": version,
-            "duration_in_sec": duration,
-        }
-    )
+    if SHOULD_WRITE_RECORDS:
+        laminprofiler = ln.Record.get(name="LaminProfiler")
+        package = ln.Record.get(
+            name=package_name, type=laminprofiler, is_type=True
+        ).save()
+        task = ln.Record.get(name=script_basename, type=package, is_type=True).save()
+        measurement = ln.Record(type=task).save()
+        measurement.features.add_values(
+            {
+                "package_version": version,
+                "duration_in_sec": duration,
+            }
+        )
 
     if threshold is not None and duration > threshold:
         print(
