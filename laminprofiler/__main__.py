@@ -65,6 +65,15 @@ def current_commit_hash16() -> str | None:
     return commit_hash[:16] if commit_hash else None
 
 
+def current_runner_env() -> str | None:
+    if (
+        os.getenv("GITHUB_ACTIONS") == "true"
+        and os.getenv("RUNNER_ENVIRONMENT") == "github-hosted"
+    ):
+        return "github_hosted"
+    return None
+
+
 @main.command("run")
 @click.argument(
     "script",
@@ -135,6 +144,7 @@ def check(script: Path, threshold: float | None, no_run: bool, repeats: int) -> 
     )
     if SHOULD_WRITE_RECORDS:
         commit_hash16 = current_commit_hash16()
+        runner_env = current_runner_env()
         laminprofiler = ln.Record.get(name="LaminProfiler")
         package = ln.Record.get(
             name=package_name, type=laminprofiler, is_type=True
@@ -147,6 +157,8 @@ def check(script: Path, threshold: float | None, no_run: bool, repeats: int) -> 
         }
         if commit_hash16 is not None:
             feature_values["commit_hash16"] = commit_hash16
+        if runner_env is not None:
+            feature_values["runner_env"] = runner_env
         measurement.features.add_values(feature_values)
 
     if threshold is not None and duration > threshold:
