@@ -9,7 +9,8 @@ from pathlib import Path
 import click
 import lamindb as ln
 
-SHOULD_WRITE_RECORDS = os.getenv("GITHUB_EVENT_NAME") == "push"
+GITHUB_EVENT_NAME = os.getenv("GITHUB_EVENT_NAME")
+SHOULD_WRITE_RECORDS = GITHUB_EVENT_NAME is None or GITHUB_EVENT_NAME == "push"
 ln.connect("laminlabs/lamindata")
 
 
