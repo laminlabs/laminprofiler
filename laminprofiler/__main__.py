@@ -1,4 +1,5 @@
 import importlib
+import importlib.util
 import os
 import platform
 import re
@@ -29,30 +30,47 @@ def parse_duration(path: Path) -> float:
     return float(match.group(1)) if match else 0.0
 
 
+def load_cleanup_hook(script: Path):
+    """Load an optional cleanup() from a profiling script."""
+    module_name = f"_laminprofiler_{script.stem}"
+    spec = importlib.util.spec_from_file_location(module_name, script)
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    cleanup = getattr(module, "cleanup", None)
+    return cleanup if callable(cleanup) else None
+
+
 def run_profiler(script: Path, repeats: int) -> None:
     """Run script with pyinstrument; profile0 warmup, remaining runs for averaging."""
     script_str = str(script.resolve())
     is_darwin = platform.system() == "Darwin"
+    cleanup_hook = load_cleanup_hook(script)
     if repeats == 1:
         print("WARNING: --repeats=1 disables cache warming; timing may be noisier.")
     for i in range(repeats):
         print(f"running script {i}...")
         out = Path(f"profile{i}.txt")
-        if is_darwin:
-            subprocess.run(
-                ["script", "-q", str(out), "pyinstrument", script_str],
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        else:
-            cmd = f"pyinstrument {shlex.quote(script_str)}"
-            subprocess.run(
-                ["script", "-q", "-c", cmd, str(out)],
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+        try:
+            if is_darwin:
+                subprocess.run(
+                    ["script", "-q", str(out), "pyinstrument", script_str],
+                    check=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            else:
+                cmd = f"pyinstrument {shlex.quote(script_str)}"
+                subprocess.run(
+                    ["script", "-q", "-c", cmd, str(out)],
+                    check=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+        finally:
+            if cleanup_hook is not None:
+                cleanup_hook()
 
 
 def current_commit_hash16() -> str | None:
