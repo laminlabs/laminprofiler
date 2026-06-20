@@ -162,23 +162,20 @@ def check(script: Path, threshold: float | None, no_run: bool, repeats: int) -> 
         f"measured durations: {[f'{d:.3f}s' for d in durations]} → avg {duration:.3f}s"
     )
     if SHOULD_WRITE_RECORDS:
-        commit_hash16 = current_commit_hash16()
-        runner_env = current_runner_env()
         laminprofiler = ln.Record.get(name="LaminProfiler")
         package = ln.Record.get(
             name=package_name, type=laminprofiler, is_type=True
         ).save()
         task = ln.Record.get(name=script_basename, type=package, is_type=True).save()
-        measurement = ln.Record(type=task).save()
-        feature_values = {
-            "package_version": version,
-            "duration_in_sec": duration,
-        }
-        if commit_hash16 is not None:
-            feature_values["commit_hash16"] = commit_hash16
-        if runner_env is not None:
-            feature_values["runner_env"] = runner_env
-        measurement.features.add_values(feature_values)
+        ln.Record(
+            features={
+                "package_version": version,
+                "duration_in_sec": duration,
+                "commit_hash16": current_commit_hash16(),
+                "runner_env": current_runner_env(),
+            },
+            type=task,
+        ).save()
 
     if threshold is not None and duration > threshold:
         print(
