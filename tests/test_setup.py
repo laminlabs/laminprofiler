@@ -85,16 +85,17 @@ def test_setup_creates_registry_with_expected_schema(monkeypatch):
     sys.modules.pop("laminprofiler.setup", None)
     module = importlib.import_module("laminprofiler.setup")
 
-    schema = module.setup(
+    module.setup(
         package_name="example_pkg",
         script_basenames=["bench_1.py", "bench_2.py"],
         verbose=False,
     )
-    schema_repeat = module.setup(
+    module.setup(
         package_name="example_pkg",
         script_basenames=["bench_1.py", "bench_2.py"],
         verbose=False,
     )
+    schema = FakeSchema.filter(name=module.LAMINPROFILER_SCHEMA_NAME).one_or_none()
     registry = FakeRecord.filter(name="LaminProfiler", is_type=True).one_or_none()
     package = FakeRecord.filter(
         name="example_pkg", is_type=True, type=registry
@@ -106,7 +107,7 @@ def test_setup_creates_registry_with_expected_schema(monkeypatch):
         name="bench_2.py", is_type=True, type=package
     ).one_or_none()
 
-    assert schema_repeat is schema
+    assert schema is not None
     assert schema.name == module.LAMINPROFILER_SCHEMA_NAME
     assert {feature.name for feature in schema.features} == {
         "package_version",
