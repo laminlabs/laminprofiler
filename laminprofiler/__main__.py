@@ -100,7 +100,7 @@ def parse_registry_names_from_script(script: Path) -> tuple[str, str]:
     assert script.parent.name == "profiling"
     assert script.parent.parent.name == "tests"
     package_name = script.parent.parent.parent.name.replace("-", "_")
-    script_basename = script.name
+    script_basename = script.stem
     return package_name, script_basename
 
 
@@ -120,7 +120,7 @@ def setup_command(script: Path | None) -> None:
     package_name = Path.cwd().name.replace("-", "_")
     profiling_dir = Path.cwd() / "tests" / "profiling"
     script_basenames = sorted(
-        path.name for path in profiling_dir.glob("*.py") if path.is_file()
+        path.stem for path in profiling_dir.glob("*.py") if path.is_file()
     )
     setup(package_name=package_name, script_basenames=script_basenames)
 

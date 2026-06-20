@@ -87,12 +87,12 @@ def test_setup_creates_registry_with_expected_schema(monkeypatch):
 
     module.setup(
         package_name="example_pkg",
-        script_basenames=["bench_1.py", "bench_2.py"],
+        script_basenames=["bench_1", "bench_2"],
         verbose=False,
     )
     module.setup(
         package_name="example_pkg",
-        script_basenames=["bench_1.py", "bench_2.py"],
+        script_basenames=["bench_1", "bench_2"],
         verbose=False,
     )
     schema = FakeSchema.filter(name=module.LAMINPROFILER_SCHEMA_NAME).one_or_none()
@@ -100,12 +100,8 @@ def test_setup_creates_registry_with_expected_schema(monkeypatch):
     package = FakeRecord.filter(
         name="example_pkg", is_type=True, type=registry
     ).one_or_none()
-    task_1 = FakeRecord.filter(
-        name="bench_1.py", is_type=True, type=package
-    ).one_or_none()
-    task_2 = FakeRecord.filter(
-        name="bench_2.py", is_type=True, type=package
-    ).one_or_none()
+    task_1 = FakeRecord.filter(name="bench_1", is_type=True, type=package).one_or_none()
+    task_2 = FakeRecord.filter(name="bench_2", is_type=True, type=package).one_or_none()
 
     assert schema is not None
     assert schema.name == module.LAMINPROFILER_SCHEMA_NAME
