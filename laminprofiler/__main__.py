@@ -10,6 +10,8 @@ from pathlib import Path
 import click
 import lamindb as ln
 
+from laminprofiler.setup import setup
+
 GITHUB_EVENT_NAME = os.getenv("GITHUB_EVENT_NAME")
 SHOULD_WRITE_RECORDS = GITHUB_EVENT_NAME is None or GITHUB_EVENT_NAME == "push"
 ln.connect("laminlabs/lamindata")
@@ -93,6 +95,36 @@ def current_runner_env() -> str | None:
     return None
 
 
+def parse_registry_names_from_script(script: Path) -> tuple[str, str]:
+    script = script.resolve()
+    assert script.parent.name == "profiling"
+    assert script.parent.parent.name == "tests"
+    package_name = script.parent.parent.parent.name.replace("-", "_")
+    script_basename = script.name
+    return package_name, script_basename
+
+
+@main.command("setup")
+@click.argument(
+    "script",
+    required=False,
+    type=click.Path(path_type=Path, exists=True),
+)
+def setup_command(script: Path | None) -> None:
+    """Set up lamindb registry and schema for laminprofiler."""
+    if script is not None:
+        package_name, script_basename = parse_registry_names_from_script(script)
+        setup(package_name=package_name, script_basenames=[script_basename])
+        return
+
+    package_name = Path.cwd().name.replace("-", "_")
+    profiling_dir = Path.cwd() / "tests" / "profiling"
+    script_basenames = sorted(
+        path.name for path in profiling_dir.glob("*.py") if path.is_file()
+    )
+    setup(package_name=package_name, script_basenames=script_basenames)
+
+
 @main.command("run")
 @click.argument(
     "script",
@@ -136,11 +168,7 @@ def run(script: Path, repeats: int) -> None:
 )
 @ln.flow("BVQ42qdoymVS")
 def check(script: Path, threshold: float | None, no_run: bool, repeats: int) -> None:
-    script = script.resolve()
-    assert script.parent.name == "profiling"
-    assert script.parent.parent.name == "tests"
-    package_name = script.parent.parent.parent.name.replace("-", "_")
-    script_basename = script.name
+    package_name, script_basename = parse_registry_names_from_script(script)
 
     if not no_run:
         run_profiler(script, repeats)
@@ -162,11 +190,16 @@ def check(script: Path, threshold: float | None, no_run: bool, repeats: int) -> 
         f"measured durations: {[f'{d:.3f}s' for d in durations]} → avg {duration:.3f}s"
     )
     if SHOULD_WRITE_RECORDS:
-        laminprofiler = ln.Record.get(name="LaminProfiler")
-        package = ln.Record.get(
-            name=package_name, type=laminprofiler, is_type=True
-        ).save()
-        task = ln.Record.get(name=script_basename, type=package, is_type=True).save()
+        try:
+            package = ln.Record.get(
+                name=package_name, type__name="LaminProfiler", is_type=True
+            )
+            task = ln.Record.get(name=script_basename, type=package, is_type=True)
+        except Exception as err:
+            raise click.ClickException(
+                "Profiling task registry is not configured. "
+                "Please run `laminprofiler setup` first."
+            ) from err
         ln.Record(
             features={
                 "package_version": version,
