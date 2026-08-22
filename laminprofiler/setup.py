@@ -30,17 +30,18 @@ def get_or_create_schema() -> ln.Schema:
 
 
 def get_or_create_package(
-    package_name: str, laminprofiler_registry: ln.Record, schema: ln.Schema
+    package_name: str, laminprofiler_registry: ln.Record
 ) -> ln.Record:
     package = ln.Record.filter(
         name=package_name, type=laminprofiler_registry, is_type=True
     ).one_or_none()
     if package is None:
         package = ln.Record(
-            name=package_name, type=laminprofiler_registry, is_type=True, schema=schema
+            name=package_name, type=laminprofiler_registry, is_type=True
         ).save()
-    elif package.schema_id is None:
-        package.schema = schema
+    elif package.schema_id is not None:
+        # Type records that type other type records must be schema-less.
+        package.schema = None
         package.save()
     return package
 
@@ -71,16 +72,17 @@ def setup(
         name="LaminProfiler", is_type=True
     ).one_or_none()
     if laminprofiler_registry is None:
-        laminprofiler_registry = ln.Record(
-            name="LaminProfiler", is_type=True, schema=schema
-        )
+        laminprofiler_registry = ln.Record(name="LaminProfiler", is_type=True)
+        laminprofiler_registry.save()
+    elif laminprofiler_registry.schema_id is not None:
+        # Keep the root type schema-less so nested types remain valid.
+        laminprofiler_registry.schema = None
         laminprofiler_registry.save()
     created_scripts = 0
     if package_name is not None:
         package = get_or_create_package(
             package_name=package_name,
             laminprofiler_registry=laminprofiler_registry,
-            schema=schema,
         )
         for script_basename in script_basenames or []:
             get_or_create_task(
