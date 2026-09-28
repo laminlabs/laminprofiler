@@ -14,7 +14,7 @@ from laminprofiler.setup import setup
 
 GITHUB_EVENT_NAME = os.getenv("GITHUB_EVENT_NAME")
 SHOULD_WRITE_RECORDS = GITHUB_EVENT_NAME is None or GITHUB_EVENT_NAME == "push"
-ln.connect("laminlabs/lamindata")
+ln.connect("laminlabs/lamindb-benchmarks")
 
 
 @click.group()
