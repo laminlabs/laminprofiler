@@ -5,11 +5,19 @@ import platform
 import re
 import shlex
 import subprocess
+import tempfile
 from pathlib import Path
 
 import click
 import lamindb as ln
 
+from laminprofiler.bench import (
+    TaskResult,
+    profile_function_names,
+    registry_names,
+    run_function_benchmarks,
+    source_hash,
+)
 from laminprofiler.setup import setup
 
 GITHUB_EVENT_NAME = os.getenv("GITHUB_EVENT_NAME")
@@ -20,16 +28,6 @@ ln.connect("laminlabs/lamindb-benchmarks")
 @click.group()
 def main():
     """LaminProfiler."""
-
-
-def parse_duration(path: Path) -> float:
-    """Extract duration from pyinstrument output; line like 'Duration: 2.315     CPU time: 2.216'."""
-    text = path.read_text()
-    # below prints the pyinstrament report
-    # keep it here! it's formatted for human readability
-    print(text)
-    match = re.search(r"Duration:\s+([\d.]+)", text)
-    return float(match.group(1)) if match else 0.0
 
 
 def load_cleanup_hook(script: Path):
@@ -95,6 +93,10 @@ def current_runner_env() -> str | None:
     return None
 
 
+def current_python_version() -> str:
+    return platform.python_version()
+
+
 def parse_registry_names_from_script(script: Path) -> tuple[str, str]:
     script = script.resolve()
     assert script.parent.name == "profiling"
@@ -113,16 +115,17 @@ def parse_registry_names_from_script(script: Path) -> tuple[str, str]:
 def setup_command(script: Path | None) -> None:
     """Set up lamindb registry and schema for laminprofiler."""
     if script is not None:
-        package_name, script_basename = parse_registry_names_from_script(script)
-        setup(package_name=package_name, script_basenames=[script_basename])
+        package_name, _script_basename = parse_registry_names_from_script(script)
+        setup(package_name=package_name, task_names=registry_names(script))
         return
 
     package_name = Path.cwd().name.replace("-", "_")
     profiling_dir = Path.cwd() / "tests" / "profiling"
-    script_basenames = sorted(
-        path.stem for path in profiling_dir.glob("*.py") if path.is_file()
-    )
-    setup(package_name=package_name, script_basenames=script_basenames)
+    task_names: list[str] = []
+    for path in sorted(profiling_dir.glob("*.py")):
+        if path.is_file() and not path.name.startswith("_"):
+            task_names.extend(registry_names(path))
+    setup(package_name=package_name, task_names=task_names)
 
 
 @main.command("run")
@@ -135,17 +138,99 @@ def setup_command(script: Path | None) -> None:
     default=4,
     type=click.IntRange(min=1),
     show_default=True,
-    help="Number of profiling runs. With repeats > 1, first run is warmup.",
+    help="Number of profiling runs for a script. With repeats > 1, first run is warmup.",
 )
 def run(script: Path, repeats: int) -> None:
     """Run script with pyinstrument; profile0 warmup if repeats > 1."""
     run_profiler(script, repeats)
 
 
+def _duration_from_profile(text: str) -> float:
+    match = re.search(r"Duration:\s+([\d.]+)", text)
+    return float(match.group(1)) if match else 0.0
+
+
+def _run_script_task(
+    script: Path, task_name: str, no_run: bool, repeats: int
+) -> TaskResult:
+    """Time a whole script. The duration is the mean pyinstrument Duration."""
+    if not no_run:
+        run_profiler(script, repeats)
+    try:
+        if repeats == 1 and no_run:
+            print("WARNING: --repeats=1 disables cache warming; timing may be noisier.")
+        measured = [0] if repeats == 1 else list(range(1, repeats))
+        chunks: list[str] = []
+        durations: list[float] = []
+        for i in range(repeats):
+            text = Path(f"profile{i}.txt").read_text()
+            chunks.append(f"# profile{i}.txt\n{text}")
+            if i in measured:
+                durations.append(_duration_from_profile(text))
+        source = script.read_text()
+        return TaskResult(
+            name=task_name,
+            source=source,
+            duration=sum(durations) / len(durations),
+            profile_text="\n".join(chunks),
+            benchmark_json=None,
+            source_hash=source_hash(source),
+            python_version=current_python_version(),
+        )
+    finally:
+        for i in range(repeats):
+            profile = Path(f"profile{i}.txt")
+            if profile.exists():
+                profile.unlink()
+
+
+# Filled by check() for the duration of record_benchmark().
+_RESULTS: dict[str, tuple[TaskResult, str, str, str | None, str | None]] = {}
+
+
+@ln.step()
+def record_benchmark(task: str, source: str, script: str) -> None:
+    """Save one measurement. `source` is the code that ran."""
+    result, package_name, version, commit, runner = _RESULTS[task]
+    if source != result.source:
+        raise click.ClickException(f"Source for {task} does not match the measurement")
+    package = ln.Record.get(name=package_name, type__name="LaminProfiler", is_type=True)
+    task_type = ln.Record.get(name=task, type=package, is_type=True)
+    ln.Record(
+        name=result.name,
+        features={
+            "package_version": version,
+            "duration_in_sec": result.duration,
+            "commit_hash16": commit,
+            "runner_env": runner,
+            "task_source_hash": result.source_hash,
+            "python_version": result.python_version,
+        },
+        type=task_type,
+    ).save()
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        profile_path = root / "pyinstrument.txt"
+        profile_path.write_text(result.profile_text)
+        ln.Artifact(
+            profile_path,
+            key=f"laminprofiler/{package_name}/{task}/pyinstrument.txt",
+            description=f"pyinstrument profile of {task} in {script}",
+        ).save()
+        if result.benchmark_json is not None:
+            stats_path = root / "benchmark.json"
+            stats_path.write_text(result.benchmark_json)
+            ln.Artifact(
+                stats_path,
+                key=f"laminprofiler/{package_name}/{task}/benchmark.json",
+                description=f"pytest-benchmark stats for {task}",
+            ).save()
+
+
 @main.command("check")
 @click.argument(
     "script",
-    type=click.Path(path_type=Path, exists=True),
+    type=click.Path(exists=True),
 )
 @click.option(
     "--threshold",
@@ -157,69 +242,67 @@ def run(script: Path, repeats: int) -> None:
     "--no-run",
     "no_run",
     is_flag=True,
-    help="Skip running the profiler; use existing profile files.",
+    help="Skip running a script profiler; use existing profile files.",
 )
 @click.option(
     "--repeats",
     default=4,
     type=click.IntRange(min=1),
     show_default=True,
-    help="Number of profiling runs. With repeats > 1, first run is warmup.",
+    help="Script runs. With repeats > 1, the first run is warmup. "
+    "Function benchmarks take their rounds from benchmark.pedantic.",
 )
 @ln.flow("BVQ42qdoymVS")
-def check(script: Path, threshold: float | None, no_run: bool, repeats: int) -> None:
-    package_name, script_basename = parse_registry_names_from_script(script)
+def check(script: str, threshold: float | None, no_run: bool, repeats: int) -> None:
+    script_path = Path(script)
+    package_name, script_basename = parse_registry_names_from_script(script_path)
+    is_function_mode = bool(profile_function_names(script_path))
 
-    if not no_run:
-        run_profiler(script, repeats)
-
-    if repeats == 1:
+    if is_function_mode:
         if no_run:
-            print("WARNING: --repeats=1 disables cache warming; timing may be noisier.")
-        durations = [parse_duration(Path("profile0.txt"))]
+            raise click.ClickException(
+                "--no-run applies to script profiles. "
+                "Function benchmarks always run pytest-benchmark."
+            )
+        print(
+            "Function benchmarks use benchmark.pedantic for the median. "
+            "--repeats applies to scripts."
+        )
+        results = run_function_benchmarks(script_path)
     else:
-        # Exclude warmup run (profile0) from averaging.
-        durations = [parse_duration(Path(f"profile{i}.txt")) for i in range(1, repeats)]
-    duration = sum(durations) / len(durations)
+        results = [_run_script_task(script_path, script_basename, no_run, repeats)]
 
     module = importlib.import_module(package_name, package=".")
     version = module.__version__
-
-    print("first duration: ", parse_duration(Path("profile0.txt")))
-    print(
-        f"measured durations: {[f'{d:.3f}s' for d in durations]} → avg {duration:.3f}s"
-    )
+    commit = current_commit_hash16()
+    runner = current_runner_env()
     if SHOULD_WRITE_RECORDS:
-        try:
-            package = ln.Record.get(
-                name=package_name, type__name="LaminProfiler", is_type=True
-            )
-            task = ln.Record.get(name=script_basename, type=package, is_type=True)
-        except Exception as err:
-            raise click.ClickException(
-                "Profiling task registry is not configured. "
-                "Please run `laminprofiler setup` first."
-            ) from err
-        ln.Record(
-            features={
-                "package_version": version,
-                "duration_in_sec": duration,
-                "commit_hash16": current_commit_hash16(),
-                "runner_env": current_runner_env(),
-            },
-            type=task,
-        ).save()
-
-    if threshold is not None and duration > threshold:
-        print(
-            f"ERROR: Profiling time {duration:.3f}s exceeds threshold {threshold:.3f}s "
-            f"for script {script_basename}"
+        setup(
+            package_name=package_name,
+            task_names=[result.name for result in results],
+            verbose=False,
         )
-        raise SystemExit(1)
+    for result in results:
+        print(f"\n# {result.name}\n{result.source}\n")
+        if result.benchmark_json is not None:
+            print("pyinstrument profile (not included in the median)")
+        print(result.profile_text)
+        print(f"{result.name}: {result.duration:.3f}s")
+        if SHOULD_WRITE_RECORDS:
+            _RESULTS[result.name] = (result, package_name, version, commit, runner)
+            record_benchmark(
+                task=result.name, source=result.source, script=str(script_path)
+            )
 
-    # clean up profile files
-    for i in range(repeats):
-        Path(f"profile{i}.txt").unlink()
+    if threshold is None:
+        return
+    too_slow = [result for result in results if result.duration > threshold]
+    if too_slow:
+        details = "\n".join(
+            f"{result.name}: {result.duration:.3f}s > {threshold:.3f}s"
+            for result in too_slow
+        )
+        raise click.ClickException(f"Profiling time exceeds threshold\n{details}")
 
 
 if __name__ == "__main__":
