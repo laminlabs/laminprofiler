@@ -10,22 +10,29 @@ def _get_or_create_feature(name: str, dtype: type | str) -> ln.Feature:
     return feature
 
 
+def _optional(feature: ln.Feature):
+    return feature.with_config(optional=True)
+
+
 def get_or_create_schema() -> ln.Schema:
     package_version = _get_or_create_feature("package_version", str)
     duration_in_sec = _get_or_create_feature("duration_in_sec", float)
     commit_hash16 = _get_or_create_feature("commit_hash16", str)
     runner_env = _get_or_create_feature("runner_env", str)
+    task_source_hash = _get_or_create_feature("task_source_hash", str)
+    python_version = _get_or_create_feature("python_version", str)
+    optional = [commit_hash16, runner_env, task_source_hash, python_version]
     schema = ln.Schema.filter(name=LAMINPROFILER_SCHEMA_NAME).one_or_none()
     if schema is None:
         schema = ln.Schema(
-            features=[
-                package_version,
-                duration_in_sec,
-                commit_hash16.with_config(optional=True),
-                runner_env.with_config(optional=True),
-            ],
+            features=[package_version, duration_in_sec, *map(_optional, optional)],
             name=LAMINPROFILER_SCHEMA_NAME,
         ).save()
+        return schema
+    existing = {feature.name for feature in schema.features.all()}
+    missing = [feature for feature in optional if feature.name not in existing]
+    if missing:
+        schema.add(missing, optional=True)
     return schema
 
 
@@ -46,16 +53,10 @@ def get_or_create_package(
     return package
 
 
-def get_or_create_task(
-    script_basename: str, package: ln.Record, schema: ln.Schema
-) -> None:
-    task = ln.Record.filter(
-        name=script_basename, type=package, is_type=True
-    ).one_or_none()
+def get_or_create_task(task_name: str, package: ln.Record, schema: ln.Schema) -> None:
+    task = ln.Record.filter(name=task_name, type=package, is_type=True).one_or_none()
     if task is None:
-        ln.Record(
-            name=script_basename, type=package, is_type=True, schema=schema
-        ).save()
+        ln.Record(name=task_name, type=package, is_type=True, schema=schema).save()
     elif task.schema_id is None:
         task.schema = schema
         task.save()
@@ -63,7 +64,7 @@ def get_or_create_task(
 
 def setup(
     package_name: str | None = None,
-    script_basenames: list[str] | None = None,
+    task_names: list[str] | None = None,
     verbose: bool = True,
 ) -> None:
     """Create laminprofiler dynamic registry."""
@@ -84,10 +85,8 @@ def setup(
             package_name=package_name,
             laminprofiler_registry=laminprofiler_registry,
         )
-        for script_basename in script_basenames or []:
-            get_or_create_task(
-                script_basename=script_basename, package=package, schema=schema
-            )
+        for task_name in task_names or []:
+            get_or_create_task(task_name=task_name, package=package, schema=schema)
             created_scripts += 1
 
     if verbose:

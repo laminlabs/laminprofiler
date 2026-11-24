@@ -12,6 +12,8 @@ dependencies = [
     "click",
     "pyinstrument",
     "lamindb-core",
+    "pytest>=8",
+    "pytest-benchmark>=5",
 ]
 
 [project.scripts]

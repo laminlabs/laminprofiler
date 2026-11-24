@@ -1,10 +1,12 @@
-# laminprofiler: Track pyinstrument calls
+# laminprofiler: Track benchmark and profile runs
 
 Public documentation to come soon. For now, see [this internal Slack thread](https://laminlabs.slack.com/archives/C04A88BKZPX/p1770068673745039).
 
+Records are written to `laminlabs/lamindb-benchmarks` on a local run and on a GitHub `push`. Pull requests still enforce `--threshold`.
+
 ## Set up record types
 
-Use `laminprofiler setup` to create the record types that `laminprofiler check` writes to.
+`laminprofiler check` creates any missing task types. `laminprofiler setup` registers every task under `tests/profiling/` in one step.
 
 ```bash
 laminprofiler setup
@@ -17,21 +19,46 @@ When run from a package repository root, this command:
   - `duration_in_sec`
   - `commit_hash16`
   - `runner_env`
+  - `task_source_hash`
+  - `python_version`
 - creates (or reuses) the top-level `LaminProfiler` type
 - creates (or reuses) the package type (`<repo_name>`, normalized with `_`)
-- creates (or reuses) task/script types for `tests/profiling/*.py`
+- creates one task type per script, or per `profile_*` function when a file defines any
 
-You can also set up a single profiling script:
+## Function benchmarks
 
-```bash
-laminprofiler setup tests/profiling/my_benchmark.py
+A file that defines `profile_*` functions is run with pytest-benchmark. Import and fixtures are outside the median. `benchmark.pedantic` owns the rounds, and its `teardown` runs between rounds. After the timed rounds, laminprofiler profiles that same callable once with pyinstrument. That profile is not part of `duration_in_sec`.
+
+Name the file something other than `test_*.py`, so the package's normal pytest run does not collect it.
+
+```python
+def profile_curate_simple_dataframe(benchmark, mini_immuno):
+    df, schema = mini_immuno
+
+    def save():
+        ln.Artifact.from_dataframe(df, key="profile/mini_immuno.parquet", schema=schema).save()
+
+    def teardown():
+        ln.Artifact.get(key="profile/mini_immuno.parquet").delete(permanent=True)
+
+    benchmark.pedantic(save, teardown=teardown, rounds=5, iterations=1, warmup_rounds=1)
 ```
 
-If profiling record types are missing, `laminprofiler check` raises an error telling you to run `laminprofiler setup`.
+```bash
+laminprofiler check tests/profiling/curate.py --threshold 2
+```
+
+## Script profiles
+
+A `tests/profiling/*.py` file with no `profile_*` function is timed as a whole process with pyinstrument. Use this for import and cold-start tasks. `--repeats` greater than 1 drops the first run as warmup.
+
+```bash
+laminprofiler check tests/profiling/import_lamindb.py --threshold 1.5
+```
 
 ## Optional `cleanup()` hook for profiling scripts
 
-If a profiling script defines a top-level `cleanup()` function, `laminprofiler` calls it after each profiling run (`run` and `check` commands). This is useful for deleting benchmark artifacts between repeats.
+If a profiling script defines a top-level `cleanup()` function, `laminprofiler` calls it after each script run (`run` and `check`). This is useful for deleting benchmark artifacts between repeats.
 
 Use the script pattern below so importing the script does not run the benchmark body:
 
