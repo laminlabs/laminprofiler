@@ -21,7 +21,10 @@ When run from a package repository root, this command:
   - `runner_env`
   - `task_source_hash`
   - `python_version`
-- creates (or reuses) the top-level `LaminProfiler` type
+  - `created_at`
+  - `run`
+- registers those features under the `LaminProfiler` feature type
+- creates (or reuses) the top-level `LaminProfiler` record type
 - creates (or reuses) the package type (`<repo_name>`, normalized with `_`)
 - creates one task type per script, or per `profile_*` function when a file defines any
 

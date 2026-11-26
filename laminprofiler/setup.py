@@ -1,12 +1,70 @@
 import lamindb as ln
 
 LAMINPROFILER_SCHEMA_NAME = "laminprofiler"
+FEATURE_TYPE_NAME = "LaminProfiler"
+# Uids registered on laminlabs/lamindb-benchmarks.
+FEATURE_UIDS = {
+    "package_version": "3jrklzyM82cU",
+    "duration_in_sec": "QsC24kltUffN",
+    "commit_hash16": "uaYdTQD761RE",
+    "runner_env": "fJUXc02btoaI",
+    "task_source_hash": "rnr6tCzZyZMR",
+    "python_version": "DbXIpju3hjt0",
+    "created_at": "nXiW5L1obr3u",
+    "run": "z4SI35hBSvVw",
+}
 
 
-def _get_or_create_feature(name: str, dtype: type | str) -> ln.Feature:
-    feature = ln.Feature.filter(name=name).one_or_none()
+def _get_or_create_feature_type() -> ln.Feature:
+    feature_type = ln.Feature.filter(name=FEATURE_TYPE_NAME, is_type=True).one_or_none()
+    if feature_type is None:
+        feature_type = ln.Feature(name=FEATURE_TYPE_NAME, is_type=True).save()
+    return feature_type
+
+
+def _is_str_feature(feature: ln.Feature) -> bool:
+    dtype = getattr(feature, "dtype_as_str", None)
+    if dtype is None:
+        dtype = getattr(feature, "dtype", None)
+    return dtype is str or dtype == "str"
+
+
+def _find_feature(name: str, uid: str, feature_type: ln.Feature, dtype):
+    candidates = (
+        ln.Feature.filter(uid=uid).one_or_none(),
+        ln.Feature.filter(name=name, type=feature_type).one_or_none(),
+        ln.Feature.filter(name=name, type=None).one_or_none(),
+    )
+    for feature in candidates:
+        if feature is None:
+            continue
+        # The benchmarks instance still has a categorical runner_env under this uid.
+        if dtype is str and not _is_str_feature(feature):
+            continue
+        return feature
+    return None
+
+
+def _get_or_create_feature(
+    name: str,
+    dtype,
+    feature_type: ln.Feature,
+    *,
+    values_through: str | None = None,
+) -> ln.Feature:
+    uid = FEATURE_UIDS[name]
+    feature = _find_feature(name, uid, feature_type, dtype)
     if feature is None:
-        feature = ln.Feature(name=name, dtype=dtype).save()
+        kwargs = {"name": name, "dtype": dtype, "type": feature_type}
+        if values_through is not None:
+            kwargs["values_through"] = values_through
+        feature = ln.Feature(**kwargs)
+        if ln.Feature.filter(uid=uid).one_or_none() is None:
+            feature.uid = uid
+        return feature.save()
+    if feature.type != feature_type:
+        feature.type = feature_type
+        feature.save()
     return feature
 
 
@@ -15,22 +73,38 @@ def _optional(feature: ln.Feature):
 
 
 def get_or_create_schema() -> ln.Schema:
-    package_version = _get_or_create_feature("package_version", str)
-    duration_in_sec = _get_or_create_feature("duration_in_sec", float)
-    commit_hash16 = _get_or_create_feature("commit_hash16", str)
-    runner_env = _get_or_create_feature("runner_env", str)
-    task_source_hash = _get_or_create_feature("task_source_hash", str)
-    python_version = _get_or_create_feature("python_version", str)
+    feature_type = _get_or_create_feature_type()
+    package_version = _get_or_create_feature("package_version", str, feature_type)
+    duration_in_sec = _get_or_create_feature("duration_in_sec", float, feature_type)
+    commit_hash16 = _get_or_create_feature("commit_hash16", str, feature_type)
+    runner_env = _get_or_create_feature("runner_env", str, feature_type)
+    task_source_hash = _get_or_create_feature("task_source_hash", str, feature_type)
+    python_version = _get_or_create_feature("python_version", str, feature_type)
+    created_at = _get_or_create_feature(
+        "created_at",
+        "datetime64[ns, UTC]",
+        feature_type,
+        values_through="created_at",
+    )
+    run = _get_or_create_feature(
+        "run",
+        ln.Run.uid,
+        feature_type,
+        values_through="run",
+    )
+    required = [package_version, duration_in_sec, created_at, run]
     optional = [commit_hash16, runner_env, task_source_hash, python_version]
     schema = ln.Schema.filter(name=LAMINPROFILER_SCHEMA_NAME).one_or_none()
     if schema is None:
         schema = ln.Schema(
-            features=[package_version, duration_in_sec, *map(_optional, optional)],
+            features=[*required, *map(_optional, optional)],
             name=LAMINPROFILER_SCHEMA_NAME,
         ).save()
         return schema
     existing = {feature.name for feature in schema.features.all()}
-    missing = [feature for feature in optional if feature.name not in existing]
+    missing = [
+        feature for feature in [*required, *optional] if feature.name not in existing
+    ]
     if missing:
         schema.add(missing, optional=True)
     return schema
