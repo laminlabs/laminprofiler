@@ -14,23 +14,41 @@ class Query:
 
 
 class FakeFeature:
-    _store: dict[str, FakeFeature] = {}
+    _store: list[FakeFeature] = []
 
-    def __init__(self, name, dtype):
+    def __init__(
+        self, name, dtype=None, *, type=None, is_type=False, values_through=None
+    ):
         self.name = name
         self.dtype = dtype
+        self.type = type
+        self.is_type = is_type
+        self.values_through = values_through
+        self.uid = None
 
     @classmethod
-    def filter(cls, *, name):
-        return Query(cls._store.get(name))
+    def filter(cls, **kwargs):
+        hits = [
+            item
+            for item in cls._store
+            if all(getattr(item, key) == value for key, value in kwargs.items())
+        ]
+        if len(hits) > 1:
+            raise AssertionError(kwargs)
+        return Query(hits[0] if hits else None)
 
     def with_config(self, *, optional=False):
         assert optional
         return self, {"optional": True}
 
     def save(self):
-        self.__class__._store[self.name] = self
+        if self not in self.__class__._store:
+            self.__class__._store.append(self)
         return self
+
+
+class FakeRun:
+    uid = "Run.uid"
 
 
 class _Features:
@@ -96,13 +114,14 @@ class FakeRecord:
 
 
 def _load_setup(monkeypatch):
-    FakeFeature._store = {}
+    FakeFeature._store = []
     FakeSchema._store = {}
     FakeRecord._store = []
     fake_ln = types.SimpleNamespace(
         Feature=FakeFeature,
         Schema=FakeSchema,
         Record=FakeRecord,
+        Run=FakeRun,
     )
     monkeypatch.setitem(sys.modules, "lamindb", fake_ln)
     sys.modules.pop("laminprofiler.setup", None)
@@ -131,14 +150,17 @@ def test_setup_creates_registry_with_expected_schema(monkeypatch):
 
     assert schema is not None
     assert schema.name == module.LAMINPROFILER_SCHEMA_NAME
-    assert {feature.name for feature in schema.features.all()} == {
-        "package_version",
-        "duration_in_sec",
-        "commit_hash16",
-        "runner_env",
-        "task_source_hash",
-        "python_version",
-    }
+    features = {feature.name: feature for feature in schema.features.all()}
+    assert set(features) == set(module.FEATURE_UIDS)
+    assert all(features[name].uid == uid for name, uid in module.FEATURE_UIDS.items())
+    assert all(feature.type.name == "LaminProfiler" for feature in features.values())
+    assert all(feature.type.is_type for feature in features.values())
+    assert features["created_at"].values_through == "created_at"
+    assert features["created_at"].dtype == "datetime64[ns, UTC]"
+    assert features["run"].values_through == "run"
+    assert features["run"].dtype == "Run.uid"
+    assert features["runner_env"].dtype is str
+    assert len([feature for feature in FakeFeature._store if feature.is_type]) == 1
     assert registry.schema is None
     assert package is not None
     assert package.schema is None
@@ -159,11 +181,25 @@ def test_setup_adds_missing_optional_features(monkeypatch):
     schema = module.get_or_create_schema()
 
     assert schema is existing
-    assert {feature.name for feature in schema.features.all()} == {
-        "package_version",
-        "duration_in_sec",
-        "commit_hash16",
-        "runner_env",
-        "task_source_hash",
-        "python_version",
-    }
+    assert {feature.name for feature in schema.features.all()} == set(
+        module.FEATURE_UIDS
+    )
+    assert package_version.type.name == "LaminProfiler"
+    assert package_version.type.is_type
+    assert duration.type.name == "LaminProfiler"
+
+
+def test_setup_creates_str_runner_env_beside_legacy_ulabel(monkeypatch):
+    module = _load_setup(monkeypatch)
+    legacy = FakeFeature("runner_env", "cat[ULabel[ljbGg49g]]").save()
+    legacy.uid = module.FEATURE_UIDS["runner_env"]
+
+    schema = module.get_or_create_schema()
+
+    runner_env = next(
+        feature for feature in schema.features.all() if feature.name == "runner_env"
+    )
+    assert runner_env is not legacy
+    assert runner_env.dtype is str
+    assert runner_env.uid != legacy.uid
+    assert legacy.type is None
