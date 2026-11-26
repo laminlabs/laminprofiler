@@ -2,6 +2,7 @@ import lamindb as ln
 
 LAMINPROFILER_SCHEMA_NAME = "laminprofiler"
 FEATURE_TYPE_NAME = "LaminProfiler"
+FEATURE_TYPE_UID = "uBBUYLh5VFbo"
 # Uids registered on laminlabs/lamindb-benchmarks.
 FEATURE_UIDS = {
     "package_version": "3jrklzyM82cU",
@@ -16,9 +17,15 @@ FEATURE_UIDS = {
 
 
 def _get_or_create_feature_type() -> ln.Feature:
-    feature_type = ln.Feature.filter(name=FEATURE_TYPE_NAME, is_type=True).one_or_none()
+    feature_type = ln.Feature.filter(uid=FEATURE_TYPE_UID).one_or_none()
     if feature_type is None:
-        feature_type = ln.Feature(name=FEATURE_TYPE_NAME, is_type=True).save()
+        feature_type = ln.Feature.filter(
+            name=FEATURE_TYPE_NAME, is_type=True
+        ).one_or_none()
+    if feature_type is None:
+        feature_type = ln.Feature(name=FEATURE_TYPE_NAME, is_type=True)
+        feature_type.uid = FEATURE_TYPE_UID
+        feature_type.save()
     return feature_type
 
 
