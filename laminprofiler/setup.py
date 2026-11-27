@@ -1,7 +1,9 @@
 import lamindb as ln
 
 BENCHMARKING_SCHEMA_ARTIFACT_NAME = "laminprofiler-benchmarks-artifact"
+BENCHMARKING_SCHEMA_ARTIFACT_UID = "3ARwY7IfXNxWu2qw"
 BENCHMARKING_SCHEMA_RECORD_NAME = "laminprofiler-benchmarks-record"
+BENCHMARKING_SCHEMA_RECORD_UID = "QlP3YCAkqOaJ1vHa"
 FEATURE_TYPE_NAME = "LaminProfiler"
 FEATURE_TYPE_UID = "uBBUYLh5VFbo"
 PRODUCTS_TYPE_UID = "tY22ouWHsJKDJaXL"
@@ -183,28 +185,44 @@ def _base_features(feature_type: ln.Feature) -> tuple[list, list]:
     return required, optional
 
 
-def _sync_schema(name: str, required: list, optional: list) -> ln.Schema:
-    schema = ln.Schema.filter(name=name).one_or_none()
+def _sync_schema(name: str, required: list, optional: list, *, uid: str) -> ln.Schema:
+    schema = ln.Schema.filter(uid=uid).one_or_none()
     if schema is None:
-        return ln.Schema(
+        schema = ln.Schema.filter(name=name).one_or_none()
+    if schema is None:
+        schema = ln.Schema(
             features=[*required, *map(_optional, optional)],
             name=name,
-        ).save()
+        )
+        # Schema.__init__ assigns a random uid. Replace it before the first save.
+        schema.uid = uid
+        return schema.save()
+    changed = schema.uid != uid or schema.name != name
+    schema.uid = uid
+    schema.name = name
     existing = {feature.name for feature in schema.features.all()}
     missing_required = [feature for feature in required if feature.name not in existing]
     missing_optional = [feature for feature in optional if feature.name not in existing]
     if missing_required:
         schema.features.add(*missing_required)
-        schema.save(print_hash_mutation_warning=False)
+        changed = True
     if missing_optional:
         schema.add(missing_optional, optional=True)
+        changed = False
+    elif changed:
+        schema.save(print_hash_mutation_warning=False)
     return schema
 
 
 def get_or_create_schema() -> ln.Schema:
     feature_type = _get_or_create_feature_type()
     required, optional = _base_features(feature_type)
-    return _sync_schema(BENCHMARKING_SCHEMA_RECORD_NAME, required, optional)
+    return _sync_schema(
+        BENCHMARKING_SCHEMA_RECORD_NAME,
+        required,
+        optional,
+        uid=BENCHMARKING_SCHEMA_RECORD_UID,
+    )
 
 
 def get_or_create_artifact_schema() -> ln.Schema:
@@ -220,6 +238,7 @@ def get_or_create_artifact_schema() -> ln.Schema:
         BENCHMARKING_SCHEMA_ARTIFACT_NAME,
         [*required, product, task_name],
         [*optional, task_uid, benchmark],
+        uid=BENCHMARKING_SCHEMA_ARTIFACT_UID,
     )
 
 

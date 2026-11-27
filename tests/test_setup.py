@@ -91,13 +91,16 @@ class FakeSchema:
 
     def __init__(self, *, features, name):
         self.name = name
+        self.uid = None
         self._features = []
         for feature in features:
             self._features.append(feature[0] if isinstance(feature, tuple) else feature)
         self.features = _Features(self._features)
 
     @classmethod
-    def filter(cls, *, name):
+    def filter(cls, *, name=None, uid=None):
+        if uid is not None:
+            return Query(cls._by_uid.get(uid))
         return Query(cls._store.get(name))
 
     def add(self, features, optional=True):
@@ -214,6 +217,7 @@ def test_setup_creates_registry_with_expected_schema(monkeypatch):
 
     assert schema is not None
     assert schema.name == module.BENCHMARKING_SCHEMA_RECORD_NAME
+    assert schema.uid == module.BENCHMARKING_SCHEMA_RECORD_UID
     features = {feature.name: feature for feature in schema.features.all()}
     assert set(features) == set(module.BENCHMARKING_FEATURE_UIDS)
     pinned = {name: features[name] for name in module.BENCHMARKING_FEATURE_UIDS}
@@ -254,6 +258,7 @@ def test_setup_adds_missing_optional_features(monkeypatch):
     schema = module.get_or_create_schema()
 
     assert schema is existing
+    assert schema.uid == module.BENCHMARKING_SCHEMA_RECORD_UID
     assert {feature.name for feature in schema.features.all()} == set(
         module.BENCHMARKING_FEATURE_UIDS
     )
@@ -333,6 +338,7 @@ def test_artifact_schema_adds_product_task_and_benchmark(monkeypatch):
     schema = module.get_or_create_artifact_schema()
     features = {feature.name: feature for feature in schema.features.all()}
     assert schema.name == module.BENCHMARKING_SCHEMA_ARTIFACT_NAME
+    assert schema.uid == module.BENCHMARKING_SCHEMA_ARTIFACT_UID
     assert features["product"].dtype.uid == "tY22ouWHsJKDJaXL"
     assert features["product"].uid == module.PRODUCT_FEATURE_UID
     git_commits = FakeSchema.get(module.GIT_COMMITS_SCHEMA_UID)
