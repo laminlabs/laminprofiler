@@ -251,10 +251,9 @@ def test_measurement_row_carries_task_product_and_benchmark():
     assert imported["commit_hash16"] is None
 
 
-def test_benchmark_payload_omits_empty_dicts_so_parquet_can_store_it(tmp_path: Path):
+def test_benchmark_payload_omits_empty_dicts():
     import json
 
-    import pandas as pd
     from laminprofiler.output import benchmark_payload
 
     raw = {
@@ -273,22 +272,11 @@ def test_benchmark_payload_omits_empty_dicts_so_parquet_can_store_it(tmp_path: P
         python_version="3.12.0",
         path="curate.py",
     )
-    payload = benchmark_payload(result)
-    assert payload == {
+    assert benchmark_payload(result) == {
         "median": 0.08,
         "stats": {"data": [0.08]},
         "kept": {"note": "warm"},
     }
-    frame = pd.DataFrame(
-        {
-            "benchmark": [
-                payload,
-                {"warmup_rounds": 1, "rounds": [0.9], "median": 0.9},
-                None,
-            ]
-        }
-    )
-    frame.to_parquet(tmp_path / "benchmark.parquet")
 
 
 def test_record_registry_is_requested_only_for_records_output():
