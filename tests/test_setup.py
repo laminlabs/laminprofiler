@@ -215,9 +215,12 @@ def test_setup_creates_registry_with_expected_schema(monkeypatch):
     assert schema is not None
     assert schema.name == module.BENCHMARKING_SCHEMA_RECORD_NAME
     features = {feature.name: feature for feature in schema.features.all()}
-    assert set(features) == set(module.FEATURE_UIDS) | {"commit_hash16"}
-    pinned = {name: features[name] for name in module.FEATURE_UIDS}
-    assert all(pinned[name].uid == uid for name, uid in module.FEATURE_UIDS.items())
+    assert set(features) == set(module.BENCHMARKING_FEATURE_UIDS)
+    pinned = {name: features[name] for name in module.BENCHMARKING_FEATURE_UIDS}
+    assert all(
+        pinned[name].uid == uid
+        for name, uid in module.BENCHMARKING_FEATURE_UIDS.items()
+    )
     assert all(feature.type.name == "LaminProfiler" for feature in features.values())
     assert all(
         feature.type.uid == module.FEATURE_TYPE_UID for feature in features.values()
@@ -229,7 +232,6 @@ def test_setup_creates_registry_with_expected_schema(monkeypatch):
     assert features["run"].dtype == "Run.uid"
     assert features["runner_env"].dtype is str
     assert features["commit_hash16"].dtype.name == "GitCommits"
-    assert features["commit_hash16"].uid == module.COMMIT_HASH16_UID
     assert len([feature for feature in FakeFeature._store if feature.is_type]) == 1
     assert registry.schema is None
     assert package is not None
@@ -253,8 +255,8 @@ def test_setup_adds_missing_optional_features(monkeypatch):
 
     assert schema is existing
     assert {feature.name for feature in schema.features.all()} == set(
-        module.FEATURE_UIDS
-    ) | {"commit_hash16"}
+        module.BENCHMARKING_FEATURE_UIDS
+    )
     assert package_version.type.name == "LaminProfiler"
     assert package_version.type.is_type
     assert duration.type.name == "LaminProfiler"
@@ -263,7 +265,7 @@ def test_setup_adds_missing_optional_features(monkeypatch):
 def test_setup_creates_str_runner_env_beside_legacy_ulabel(monkeypatch):
     module = _load_setup(monkeypatch)
     legacy = FakeFeature("runner_env", "cat[ULabel[ljbGg49g]]").save()
-    legacy.uid = module.FEATURE_UIDS["runner_env"]
+    legacy.uid = module.BENCHMARKING_FEATURE_UIDS["runner_env"]
 
     schema = module.get_or_create_schema()
 
@@ -323,7 +325,7 @@ def test_commit_hash16_is_not_the_legacy_string_feature(monkeypatch):
     )
     assert commit is not legacy
     assert commit.dtype.name == "GitCommits"
-    assert commit.uid == module.COMMIT_HASH16_UID
+    assert commit.uid == module.BENCHMARKING_FEATURE_UIDS["commit_hash16"]
 
 
 def test_artifact_schema_adds_product_task_and_benchmark(monkeypatch):
@@ -342,4 +344,7 @@ def test_artifact_schema_adds_product_task_and_benchmark(monkeypatch):
     assert features["task_uid"].dtype is str
     assert features["benchmark"].dtype is dict
     assert features["commit_hash16"].dtype.name == "GitCommits"
-    assert features["commit_hash16"].uid == module.COMMIT_HASH16_UID
+    assert (
+        features["commit_hash16"].uid
+        == module.BENCHMARKING_FEATURE_UIDS["commit_hash16"]
+    )

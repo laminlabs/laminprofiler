@@ -6,8 +6,7 @@ FEATURE_TYPE_NAME = "LaminProfiler"
 FEATURE_TYPE_UID = "uBBUYLh5VFbo"
 PRODUCTS_TYPE_UID = "tY22ouWHsJKDJaXL"
 GIT_COMMITS_SCHEMA_UID = "LLgPZodc1iazGcVv"
-# Uids registered for the scalar measurement features.
-FEATURE_UIDS = {
+BENCHMARKING_FEATURE_UIDS = {
     "package_version": "3jrklzyM82cU",
     "duration_in_sec": "QsC24kltUffN",
     "runner_env": "fJUXc02btoaI",
@@ -15,8 +14,8 @@ FEATURE_UIDS = {
     "python_version": "DbXIpju3hjt0",
     "created_at": "nXiW5L1obr3u",
     "run": "z4SI35hBSvVw",
+    "commit_hash16": "tViF46horYOI",
 }
-COMMIT_HASH16_UID = "tViF46horYOI"
 PRODUCT_FEATURE_UID = "nc9f3tG4LUoF"
 
 
@@ -81,8 +80,8 @@ def _get_or_create_feature(
     values_through: str | None = None,
     uid: str | None = None,
 ) -> ln.Feature:
-    if uid is None and name in FEATURE_UIDS:
-        uid = FEATURE_UIDS[name]
+    if uid is None and name in BENCHMARKING_FEATURE_UIDS:
+        uid = BENCHMARKING_FEATURE_UIDS[name]
     feature = _find_feature(name, uid, feature_type, dtype)
     if feature is None:
         kwargs = {"name": name, "dtype": dtype, "type": feature_type}
@@ -162,7 +161,7 @@ def _base_features(feature_type: ln.Feature) -> tuple[list, list]:
     package_version = _get_or_create_feature("package_version", str, feature_type)
     duration_in_sec = _get_or_create_feature("duration_in_sec", float, feature_type)
     commit_hash16 = _get_or_create_feature(
-        "commit_hash16", git_commits_type(), feature_type, uid=COMMIT_HASH16_UID
+        "commit_hash16", git_commits_type(), feature_type
     )
     runner_env = _get_or_create_feature("runner_env", str, feature_type)
     task_source_hash = _get_or_create_feature("task_source_hash", str, feature_type)
