@@ -78,6 +78,12 @@ class _Features:
     def all(self):
         return list(self._items)
 
+    def add(self, *features):
+        for feature in features:
+            item = feature[0] if isinstance(feature, tuple) else feature
+            if item not in self._items:
+                self._items.append(item)
+
 
 class FakeSchema:
     _store: dict[str, FakeSchema] = {}
@@ -99,7 +105,7 @@ class FakeSchema:
         self._features.extend(items)
         return self
 
-    def save(self):
+    def save(self, **kwargs):
         self.__class__._store[self.name] = self
         if getattr(self, "uid", None) is not None:
             self.__class__._by_uid[self.uid] = self
@@ -196,7 +202,9 @@ def test_setup_creates_registry_with_expected_schema(monkeypatch):
         task_names=["bench_1", "bench_2"],
         verbose=False,
     )
-    schema = FakeSchema.filter(name=module.LAMINPROFILER_SCHEMA_NAME).one_or_none()
+    schema = FakeSchema.filter(
+        name=module.BENCHMARKING_SCHEMA_RECORD_NAME
+    ).one_or_none()
     registry = FakeRecord.filter(name="LaminProfiler", is_type=True).one_or_none()
     package = FakeRecord.filter(
         name="example_pkg", is_type=True, type=registry
@@ -205,7 +213,7 @@ def test_setup_creates_registry_with_expected_schema(monkeypatch):
     task_2 = FakeRecord.filter(name="bench_2", is_type=True, type=package).one_or_none()
 
     assert schema is not None
-    assert schema.name == module.LAMINPROFILER_SCHEMA_NAME
+    assert schema.name == module.BENCHMARKING_SCHEMA_RECORD_NAME
     features = {feature.name: feature for feature in schema.features.all()}
     assert set(features) == set(module.FEATURE_UIDS) | {"commit_hash16"}
     pinned = {name: features[name] for name in module.FEATURE_UIDS}
@@ -237,7 +245,8 @@ def test_setup_adds_missing_optional_features(monkeypatch):
     package_version = FakeFeature("package_version", str).save()
     duration = FakeFeature("duration_in_sec", float).save()
     existing = FakeSchema(
-        features=[package_version, duration], name=module.LAMINPROFILER_SCHEMA_NAME
+        features=[package_version, duration],
+        name=module.BENCHMARKING_SCHEMA_RECORD_NAME,
     ).save()
 
     schema = module.get_or_create_schema()
@@ -321,9 +330,14 @@ def test_artifact_schema_adds_product_task_and_benchmark(monkeypatch):
     module = _load_setup(monkeypatch)
     schema = module.get_or_create_artifact_schema()
     features = {feature.name: feature for feature in schema.features.all()}
-    assert schema.name == "laminprofiler-artifact"
+    assert schema.name == module.BENCHMARKING_SCHEMA_ARTIFACT_NAME
     assert features["product"].dtype.uid == "tY22ouWHsJKDJaXL"
     assert features["product"].uid == module.PRODUCT_FEATURE_UID
+    git_commits = FakeSchema.get(module.GIT_COMMITS_SCHEMA_UID)
+    git_product = next(
+        feature for feature in git_commits.features.all() if feature.name == "product"
+    )
+    assert git_product is features["product"]
     assert features["task_name"].dtype is str
     assert features["task_uid"].dtype is str
     assert features["benchmark"].dtype is dict

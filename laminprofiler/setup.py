@@ -1,7 +1,7 @@
 import lamindb as ln
 
-LAMINPROFILER_SCHEMA_NAME = "laminprofiler-records"
-LAMINPROFILER_ARTIFACT_SCHEMA_NAME = "laminprofiler-artifact"
+BENCHMARKING_SCHEMA_RECORD_NAME = "laminprofiler-records"
+BENCHMARKING_SCHEMA_ARTIFACT_NAME = "laminprofiler-artifact"
 FEATURE_TYPE_NAME = "LaminProfiler"
 FEATURE_TYPE_UID = "uBBUYLh5VFbo"
 PRODUCTS_TYPE_UID = "tY22ouWHsJKDJaXL"
@@ -102,6 +102,15 @@ def _optional(feature: ln.Feature):
     return feature.with_config(optional=True)
 
 
+def product_feature(feature_type: ln.Feature | None = None) -> ln.Feature:
+    """The one `product` feature, shared by GitCommits and benchmark artifacts."""
+    if feature_type is None:
+        feature_type = _get_or_create_feature_type()
+    return _get_or_create_feature(
+        "product", products_type(), feature_type, uid=PRODUCT_FEATURE_UID
+    )
+
+
 def products_type() -> ln.Record:
     """Products record type on lamindb-dev."""
     return ln.Record.get(PRODUCTS_TYPE_UID)
@@ -121,8 +130,24 @@ def require_product(name: str) -> ln.Record:
     return product
 
 
+def ensure_git_commits_schema(
+    feature: ln.Feature | None = None,
+) -> ln.Schema:
+    """GitCommits schema, including the shared product feature."""
+    schema = ln.Schema.get(GIT_COMMITS_SCHEMA_UID)
+    feature = product_feature() if feature is None else feature
+    if any(member.uid == feature.uid for member in schema.features.all()):
+        return schema
+    # Schema.add(optional=False) is not implemented. Membership without an
+    # optionals entry is what makes the feature required.
+    schema.features.add(feature)
+    schema.save(print_hash_mutation_warning=False)
+    return schema
+
+
 def ensure_git_commit(hash16: str, product: ln.Record | None = None) -> ln.Record:
     """Return the GitCommits record named with this hash, creating it if needed."""
+    ensure_git_commits_schema()
     git_commits = git_commits_type()
     record = ln.Record.filter(name=hash16, type=git_commits).one_or_none()
     if record is not None:
@@ -170,7 +195,8 @@ def _sync_schema(name: str, required: list, optional: list) -> ln.Schema:
     missing_required = [feature for feature in required if feature.name not in existing]
     missing_optional = [feature for feature in optional if feature.name not in existing]
     if missing_required:
-        schema.add(missing_required, optional=False)
+        schema.features.add(*missing_required)
+        schema.save(print_hash_mutation_warning=False)
     if missing_optional:
         schema.add(missing_optional, optional=True)
     return schema
@@ -179,21 +205,20 @@ def _sync_schema(name: str, required: list, optional: list) -> ln.Schema:
 def get_or_create_schema() -> ln.Schema:
     feature_type = _get_or_create_feature_type()
     required, optional = _base_features(feature_type)
-    return _sync_schema(LAMINPROFILER_SCHEMA_NAME, required, optional)
+    return _sync_schema(BENCHMARKING_SCHEMA_RECORD_NAME, required, optional)
 
 
 def get_or_create_artifact_schema() -> ln.Schema:
     """Schema for one benchmark run: record features plus product, task, and benchmark."""
     feature_type = _get_or_create_feature_type()
     required, optional = _base_features(feature_type)
-    product = _get_or_create_feature(
-        "product", products_type(), feature_type, uid=PRODUCT_FEATURE_UID
-    )
+    product = product_feature(feature_type)
+    ensure_git_commits_schema(product)
     task_name = _get_or_create_feature("task_name", str, feature_type, uid=None)
     task_uid = _get_or_create_feature("task_uid", str, feature_type, uid=None)
     benchmark = _get_or_create_feature("benchmark", dict, feature_type, uid=None)
     return _sync_schema(
-        LAMINPROFILER_ARTIFACT_SCHEMA_NAME,
+        BENCHMARKING_SCHEMA_ARTIFACT_NAME,
         [*required, product, task_name],
         [*optional, task_uid, benchmark],
     )
