@@ -1,7 +1,7 @@
 import lamindb as ln
 
-BENCHMARKING_SCHEMA_RECORD_NAME = "laminprofiler-records"
-BENCHMARKING_SCHEMA_ARTIFACT_NAME = "laminprofiler-artifact"
+BENCHMARKING_SCHEMA_ARTIFACT_NAME = "laminprofiler-benchmarks-artifact"
+BENCHMARKING_SCHEMA_RECORD_NAME = "laminprofiler-benchmarks-record"
 FEATURE_TYPE_NAME = "LaminProfiler"
 FEATURE_TYPE_UID = "uBBUYLh5VFbo"
 PRODUCTS_TYPE_UID = "tY22ouWHsJKDJaXL"
