@@ -10,8 +10,8 @@ ROOT_FEATURE_UIDS = {
     "product": "nc9f3tG4LUoF",
     "commit_hash16": "tViF46horYOI",
 }
-FEATURE_BENCHMARK_TYPE_NAME = "Benchmark"
-FEATURE_BENCHMARK_TYPE_UID = "6azc9bL9cDr8"
+FEATURE_BENCHMARKS_TYPE_NAME = "Benchmarks"
+FEATURE_BENCHMARKS_TYPE_UID = "6azc9bL9cDr8"
 PRODUCTS_TYPE_UID = "tY22ouWHsJKDJaXL"
 GIT_COMMITS_SCHEMA_UID = "LLgPZodc1iazGcVv"
 GIT_COMMITS_FEATURE_TYPE_NAME = "GitCommits"
@@ -50,16 +50,16 @@ def _get_or_create_feature_type() -> ln.Feature:
 def _get_or_create_benchmark_feature_type() -> ln.Feature:
     """`LaminProfiler/Benchmark`, the type for benchmarking measurement features."""
     root = _get_or_create_feature_type()
-    feature_type = ln.Feature.filter(uid=FEATURE_BENCHMARK_TYPE_UID).one_or_none()
+    feature_type = ln.Feature.filter(uid=FEATURE_BENCHMARKS_TYPE_UID).one_or_none()
     if feature_type is None:
         feature_type = ln.Feature.filter(
-            name=FEATURE_BENCHMARK_TYPE_NAME, is_type=True, type=root
+            name=FEATURE_BENCHMARKS_TYPE_NAME, is_type=True, type=root
         ).one_or_none()
     if feature_type is None:
         feature_type = ln.Feature(
-            name=FEATURE_BENCHMARK_TYPE_NAME, is_type=True, type=root
+            name=FEATURE_BENCHMARKS_TYPE_NAME, is_type=True, type=root
         )
-        feature_type.uid = FEATURE_BENCHMARK_TYPE_UID
+        feature_type.uid = FEATURE_BENCHMARKS_TYPE_UID
         return feature_type.save()
     if feature_type.type_id != root.id:
         feature_type.type = root

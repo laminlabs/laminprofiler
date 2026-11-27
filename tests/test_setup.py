@@ -233,9 +233,9 @@ def test_setup_creates_registry_with_expected_schema(monkeypatch):
     benchmark_features = [
         feature for name, feature in features.items() if name != "commit_hash16"
     ]
-    assert all(feature.type.name == "Benchmark" for feature in benchmark_features)
+    assert all(feature.type.name == "Benchmarks" for feature in benchmark_features)
     assert all(
-        feature.type.uid == module.FEATURE_BENCHMARK_TYPE_UID
+        feature.type.uid == module.FEATURE_BENCHMARKS_TYPE_UID
         for feature in benchmark_features
     )
     assert all(
@@ -285,8 +285,8 @@ def test_setup_adds_missing_optional_features(monkeypatch):
     created_at = next(
         feature for feature in schema.features.all() if feature.name == "created_at"
     )
-    assert created_at.type.name == "Benchmark"
-    assert created_at.type.uid == module.FEATURE_BENCHMARK_TYPE_UID
+    assert created_at.type.name == "Benchmarks"
+    assert created_at.type.uid == module.FEATURE_BENCHMARKS_TYPE_UID
 
 
 def test_setup_creates_str_runner_env_beside_legacy_ulabel(monkeypatch):
@@ -398,7 +398,7 @@ def test_artifact_schema_adds_product_task_and_benchmark(monkeypatch):
     assert features["product"].uid == module.ROOT_FEATURE_UIDS["product"]
     assert features["product"].type.uid == module.FEATURE_ROOT_TYPE_UID
     assert features["commit_hash16"].type.uid == module.FEATURE_ROOT_TYPE_UID
-    assert features["task_name"].type.uid == module.FEATURE_BENCHMARK_TYPE_UID
+    assert features["task_name"].type.uid == module.FEATURE_BENCHMARKS_TYPE_UID
     git_commits = FakeSchema.get(module.GIT_COMMITS_SCHEMA_UID)
     git_product = next(
         feature for feature in git_commits.features.all() if feature.name == "product"
