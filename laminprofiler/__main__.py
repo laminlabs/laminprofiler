@@ -18,6 +18,8 @@ from laminprofiler.output import (
     INSTANCE,
     MEASUREMENT_COLUMNS,
     benchmark_payload,
+    cast_categorical_columns,
+    categorical_column_names,
     coverage_ratio,
     current_commit_hash16,
     current_runner_env,
@@ -160,6 +162,9 @@ def _write_parquet(
 
     frame = pd.DataFrame(rows, columns=MEASUREMENT_COLUMNS)
     schema = get_or_create_artifact_schema()
+    # Record features validate as pandas categories. A DataFrame of Python
+    # strings stores them as object, and parquet keeps that dtype.
+    cast_categorical_columns(frame, categorical_column_names(schema.members))
     extra = github_run_extra_data()
     kwargs = {
         "description": BENCHMARK_DESCRIPTION,

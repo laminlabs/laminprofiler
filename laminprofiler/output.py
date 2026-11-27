@@ -79,6 +79,27 @@ def benchmark_payload(result: TaskResult) -> dict | None:
     return json.loads(result.benchmark_json)
 
 
+def categorical_column_names(features) -> list[str]:
+    """Feature names stored as categoricals, such as record links."""
+    names: list[str] = []
+    for feature in features:
+        dtype = getattr(feature, "dtype_as_str", None) or ""
+        if dtype.startswith("cat"):
+            names.append(feature.name)
+    return names
+
+
+def cast_categorical_columns(frame, columns: list[str]):
+    """Give record columns a pandas categorical dtype for schema validation."""
+    import pandas as pd
+
+    for name in columns:
+        if name not in frame.columns:
+            continue
+        frame[name] = pd.Categorical(frame[name])
+    return frame
+
+
 def measurement_row(
     result: TaskResult,
     *,
