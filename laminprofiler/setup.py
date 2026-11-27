@@ -18,6 +18,7 @@ PRODUCTS_TYPE_UID = "tY22ouWHsJKDJaXL"
 GIT_COMMITS_SCHEMA_UID = "LLgPZodc1iazGcVv"
 GIT_COMMITS_FEATURE_TYPE_NAME = "GitCommits"
 GIT_COMMITS_FEATURE_TYPE_UID = "xtViAXH9Dc5j"
+FEATURE_UID_ITYPE = "Feature.uid"
 GIT_COMMITS_FEATURE_UIDS = {
     "hash16": "FN9b8rciIUuG",
     "coverage": "uJfnb8JLsgnZ",
@@ -44,10 +45,17 @@ def _get_or_create_schema_type() -> ln.Schema:
             name=SCHEMA_ROOT_TYPE_NAME, is_type=True
         ).one_or_none()
     if schema_type is None:
-        schema_type = ln.Schema(name=SCHEMA_ROOT_TYPE_NAME, is_type=True)
+        schema_type = ln.Schema(
+            name=SCHEMA_ROOT_TYPE_NAME,
+            is_type=True,
+            itype=ln.Feature.uid,
+        )
         # Schema.__init__ assigns a random uid. Replace it before the first save.
         schema_type.uid = SCHEMA_ROOT_TYPE_UID
-        schema_type.save()
+        return schema_type.save()
+    if schema_type.itype != FEATURE_UID_ITYPE:
+        schema_type.itype = FEATURE_UID_ITYPE
+        schema_type.save(print_hash_mutation_warning=False)
     return schema_type
 
 
@@ -253,6 +261,9 @@ def ensure_git_commits_schema(
     type_changed = schema.type_id != schema_type.id
     if type_changed:
         schema.type = schema_type
+    itype_changed = schema.itype != FEATURE_UID_ITYPE
+    if itype_changed:
+        schema.itype = FEATURE_UID_ITYPE
     member_uids = {member.uid for member in schema.features.all()}
     # hash16 and product are required. The other schema features are optional.
     # benchmarks is a GitCommits feature and is not a member of this schema.
@@ -272,7 +283,7 @@ def ensure_git_commits_schema(
         schema.features.add(*missing_required)
     if missing_optional:
         schema.add(missing_optional, optional=True)
-    elif type_changed or missing_required:
+    elif type_changed or missing_required or itype_changed:
         schema.save(print_hash_mutation_warning=False)
     return schema
 
@@ -324,16 +335,21 @@ def _sync_schema(name: str, required: list, optional: list, *, uid: str) -> ln.S
             features=[*required, *map(_optional, optional)],
             name=name,
             type=schema_type,
+            itype=ln.Feature.uid,
         )
         # Schema.__init__ assigns a random uid. Replace it before the first save.
         schema.uid = uid
         return schema.save()
     changed = (
-        schema.uid != uid or schema.name != name or schema.type_id != schema_type.id
+        schema.uid != uid
+        or schema.name != name
+        or schema.type_id != schema_type.id
+        or schema.itype != FEATURE_UID_ITYPE
     )
     schema.uid = uid
     schema.name = name
     schema.type = schema_type
+    schema.itype = FEATURE_UID_ITYPE
     existing = {feature.name for feature in schema.features.all()}
     missing_required = [feature for feature in required if feature.name not in existing]
     missing_optional = [feature for feature in optional if feature.name not in existing]

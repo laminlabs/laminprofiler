@@ -26,6 +26,7 @@ from laminprofiler.output import (
     github_run_extra_data,
     measurement_row,
     record_registry_requested,
+    use_feature_uid_columns,
 )
 from laminprofiler.setup import (
     ROOT_FEATURE_UIDS,
@@ -155,9 +156,12 @@ def _write_parquet(
 
     frame = pd.DataFrame(rows, columns=MEASUREMENT_COLUMNS)
     schema = get_or_create_artifact_schema()
+    features = list(schema.members)
+    # Column headers are feature uids because the schema itype is Feature.uid.
+    frame = use_feature_uid_columns(frame, features)
     # Record features validate as pandas categories. A DataFrame of Python
     # strings stores them as object, and parquet keeps that dtype.
-    cast_categorical_columns(frame, categorical_column_names(schema.members))
+    cast_categorical_columns(frame, categorical_column_names(features))
     extra = github_run_extra_data()
     kwargs = {
         "description": BENCHMARK_DESCRIPTION,

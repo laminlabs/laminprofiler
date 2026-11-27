@@ -15,7 +15,7 @@ laminprofiler benchmark profiling_tests/my_script.py --threshold 1.5
 
 A directory runs each Python file placed directly in it, and skips `conftest.py` plus helper files whose names start with `_`. One `--threshold` applies to every task in that run.
 
-The default `--output-format parquet` saves one unkeyed artifact for the run (`description="benchmarks"`, `kind="laminprofiler"`). On GitHub Actions the artifact's `extra_data` includes `gh_run_id`. The artifact uses the `laminprofiler-benchmarks-artifact` schema, with one row per task:
+The default `--output-format parquet` saves one unkeyed artifact for the run (`description="benchmarks"`, `kind="laminprofiler"`). On GitHub Actions the artifact's `extra_data` includes `gh_run_id`. The artifact uses the `laminprofiler-benchmarks-artifact` schema, with one row per task. Every laminprofiler schema has `itype` `Feature.uid`, so the parquet column names are feature uids:
 
 - `product` (a Products record)
 - `task_name`
