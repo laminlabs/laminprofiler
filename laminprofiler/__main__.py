@@ -97,11 +97,12 @@ def record_benchmark(task: str, source: str, script: str) -> None:
     ).save()
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
+        label = result.uid or task
         profile_path = root / "pyinstrument.txt"
         profile_path.write_text(result.profile_text)
         ln.Artifact(
             profile_path,
-            key=f"laminprofiler/{package_name}/{task}/pyinstrument.txt",
+            key=f"laminprofiler/{package_name}/{label}/pyinstrument.txt",
             description=f"pyinstrument profile of {task} in {script}",
         ).save()
         if result.benchmark_json is not None:
@@ -109,7 +110,7 @@ def record_benchmark(task: str, source: str, script: str) -> None:
             stats_path.write_text(result.benchmark_json)
             ln.Artifact(
                 stats_path,
-                key=f"laminprofiler/{package_name}/{task}/benchmark.json",
+                key=f"laminprofiler/{package_name}/{label}/benchmark.json",
                 description=f"Timing stats for {task}",
             ).save()
 
@@ -176,6 +177,11 @@ def main(paths: tuple[str, ...], threshold: float | None) -> None:
             setup(
                 package_name=package_name,
                 task_names=[result.name for result in package_results],
+                task_uids={
+                    result.name: result.uid
+                    for result in package_results
+                    if result.uid is not None
+                },
                 verbose=False,
             )
         for result in package_results:

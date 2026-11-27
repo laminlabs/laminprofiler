@@ -134,12 +134,38 @@ def get_or_create_package(
     return package
 
 
-def get_or_create_task(task_name: str, package: ln.Record, schema: ln.Schema) -> None:
-    task = ln.Record.filter(name=task_name, type=package, is_type=True).one_or_none()
+def get_or_create_task(
+    task_name: str,
+    package: ln.Record,
+    schema: ln.Schema,
+    *,
+    uid: str | None = None,
+) -> None:
+    """Find a task type by uid, or by name, and keep the uid when the name changes."""
+    task = None
+    if uid is not None:
+        task = ln.Record.filter(uid=uid).one_or_none()
     if task is None:
-        ln.Record(name=task_name, type=package, is_type=True, schema=schema).save()
-    elif task.schema_id is None:
+        task = ln.Record.filter(
+            name=task_name, type=package, is_type=True
+        ).one_or_none()
+    if task is None:
+        task = ln.Record(name=task_name, type=package, is_type=True, schema=schema)
+        if uid is not None:
+            task.uid = uid
+        task.save()
+        return
+    changed = False
+    if task.name != task_name:
+        task.name = task_name
+        changed = True
+    if uid is not None and task.uid != uid:
+        task.uid = uid
+        changed = True
+    if task.schema_id is None:
         task.schema = schema
+        changed = True
+    if changed:
         task.save()
 
 
@@ -147,6 +173,7 @@ def setup(
     package_name: str | None = None,
     task_names: list[str] | None = None,
     verbose: bool = True,
+    task_uids: dict[str, str] | None = None,
 ) -> None:
     """Create laminprofiler dynamic registry."""
     schema = get_or_create_schema()
@@ -167,7 +194,12 @@ def setup(
             laminprofiler_registry=laminprofiler_registry,
         )
         for task_name in task_names or []:
-            get_or_create_task(task_name=task_name, package=package, schema=schema)
+            get_or_create_task(
+                task_name=task_name,
+                package=package,
+                schema=schema,
+                uid=None if task_uids is None else task_uids.get(task_name),
+            )
             created_scripts += 1
 
     if verbose:
