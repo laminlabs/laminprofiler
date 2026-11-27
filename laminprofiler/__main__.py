@@ -28,6 +28,7 @@ from laminprofiler.output import (
     record_registry_requested,
 )
 from laminprofiler.setup import (
+    COMMIT_HASH16_UID,
     ensure_git_commit,
     get_or_create_artifact_schema,
     require_product,
@@ -184,13 +185,18 @@ def _save_coverage_record(coverage_xml: Path, product_name: str) -> None:
         raise click.ClickException("Could not resolve the git commit.")
     product = _product(product_name)
     extra = github_run_extra_data()
+    record = ensure_git_commit(hash16, product)
+    schema = get_or_create_artifact_schema()
+    commit_hash16 = next(
+        feature for feature in schema.features.all() if feature.uid == COMMIT_HASH16_UID
+    )
     artifact = ln.Artifact(
         coverage_xml,
         description=COVERAGE_DESCRIPTION,
         kind=ARTIFACT_KIND,
         extra_data=extra,
+        features={commit_hash16: record},
     ).save()
-    record = ensure_git_commit(hash16, product)
     record.features.set_values(
         {
             "hash16": hash16,
@@ -314,6 +320,7 @@ def benchmark(
 def coverage(coverage_xml: Path, product: str) -> None:
     """Log line coverage on a GitCommits record.
 
+    The coverage artifact is annotated with `commit_hash16`.
     This command is not a tracked LaminDB run.
     """
     ln.connect(INSTANCE)
