@@ -12,6 +12,7 @@ from laminprofiler.bench import (
     package_name_from_path,
     profiling_scripts,
     run_benchmarks,
+    tasks_over_budget,
 )
 from laminprofiler.setup import setup
 
@@ -115,11 +116,15 @@ def record_benchmark(task: str, source: str, script: str) -> None:
             ).save()
 
 
-def _report_result(result: TaskResult) -> None:
+def _report_result(result: TaskResult, override: float | None) -> None:
     print(f"\n# {result.name}\n{result.source}\n")
     print("pyinstrument profile (not included in the median)")
     print(result.profile_text)
-    print(f"{result.name}: {result.duration:.3f}s")
+    limit = override if override is not None else result.total_seconds
+    if limit is None:
+        print(f"{result.name}: {result.duration:.3f}s")
+    else:
+        print(f"{result.name}: {result.duration:.3f}s (total_seconds {limit:g})")
 
 
 def _scripts_by_package(results: list[TaskResult]) -> dict[str, list[TaskResult]]:
@@ -142,8 +147,9 @@ def _scripts_by_package(results: list[TaskResult]) -> dict[str, list[TaskResult]
     "--threshold",
     default=None,
     type=float,
-    help="Max allowed duration in seconds. Exit 1 when a task exceeds it. "
-    "Omit it to record the duration with no limit.",
+    help="Max allowed duration in seconds for every task in this run. "
+    "Overrides total_seconds on @laminprofiler. "
+    "Omit it to use each task's total_seconds.",
 )
 @ln.flow("BVQ42qdoymVS")
 def main(paths: tuple[str, ...], threshold: float | None) -> None:
@@ -185,7 +191,7 @@ def main(paths: tuple[str, ...], threshold: float | None) -> None:
                 verbose=False,
             )
         for result in package_results:
-            _report_result(result)
+            _report_result(result, threshold)
             if SHOULD_WRITE_RECORDS:
                 _RESULTS[result.name] = (
                     result,
@@ -200,15 +206,13 @@ def main(paths: tuple[str, ...], threshold: float | None) -> None:
                     script=result.path,
                 )
 
-    if threshold is None:
-        return
-    too_slow = [result for result in results if result.duration > threshold]
+    too_slow = tasks_over_budget(results, threshold)
     if too_slow:
         details = "\n".join(
-            f"{result.name}: {result.duration:.3f}s > {threshold:.3f}s"
-            for result in too_slow
+            f"{result.name}: {result.duration:.3f}s > {limit:.3f}s"
+            for result, limit in too_slow
         )
-        raise click.ClickException(f"Profiling time exceeds threshold\n{details}")
+        raise click.ClickException(f"Profiling time exceeds total_seconds\n{details}")
 
 
 if __name__ == "__main__":

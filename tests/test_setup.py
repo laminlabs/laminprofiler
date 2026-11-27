@@ -15,16 +15,28 @@ class Query:
 
 class FakeFeature:
     _store: list[FakeFeature] = []
+    _next_id = 1
 
     def __init__(
         self, name, dtype=None, *, type=None, is_type=False, values_through=None
     ):
         self.name = name
         self.dtype = dtype
+        self.id = FakeFeature._next_id
+        FakeFeature._next_id += 1
         self.type = type
         self.is_type = is_type
         self.values_through = values_through
         self.uid = None
+
+    @property
+    def type(self):
+        return self._type
+
+    @type.setter
+    def type(self, value):
+        self._type = value
+        self.type_id = None if value is None else value.id
 
     @classmethod
     def filter(cls, **kwargs):
@@ -119,6 +131,7 @@ class FakeRecord:
 
 def _load_setup(monkeypatch):
     FakeFeature._store = []
+    FakeFeature._next_id = 1
     FakeSchema._store = {}
     FakeRecord._store = []
     fake_ln = types.SimpleNamespace(

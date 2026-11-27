@@ -1,16 +1,19 @@
 from pathlib import Path
 
 import pytest
-from laminprofiler import uid
+from laminprofiler import laminprofiler
 from laminprofiler.bench import (
     IMPORT_ROUNDS,
     IMPORT_WARMUP_ROUNDS,
+    TaskResult,
+    function_total_seconds,
     function_uid,
     package_name_from_path,
     profile_function_names,
     profiling_scripts,
     registry_names,
     run_benchmarks,
+    tasks_over_budget,
 )
 
 
@@ -27,30 +30,77 @@ def test_registry_names_follow_profile_functions(tmp_path: Path):
     assert registry_names(script) == ["curate_simple_dataframe"]
 
 
-def test_function_uid_is_optional(tmp_path: Path):
+def test_laminprofiler_mark_is_optional(tmp_path: Path):
     script = tmp_path / "curate.py"
     script.write_text(
-        "from laminprofiler import uid\n"
+        "from laminprofiler import laminprofiler\n"
         "\n"
-        "@uid('k5F8p2Q1nX9a')\n"
+        "@laminprofiler('k5F8p2Q1nX9a', total_seconds=2)\n"
         "def profile_curate_simple_dataframe():\n"
         "    return 1\n"
         "\n"
-        "def profile_other():\n"
+        "@laminprofiler(total_seconds=1.5)\n"
+        "def profile_import_lamindb():\n"
         "    return 2\n"
+        "\n"
+        "def profile_other():\n"
+        "    return 3\n"
     )
     assert function_uid(script, "profile_curate_simple_dataframe") == "k5F8p2Q1nX9a"
+    assert function_total_seconds(script, "profile_curate_simple_dataframe") == 2
+    assert function_uid(script, "profile_import_lamindb") is None
+    assert function_total_seconds(script, "profile_import_lamindb") == 1.5
     assert function_uid(script, "profile_other") is None
+    assert function_total_seconds(script, "profile_other") is None
 
-    @uid("k5F8p2Q1nX9a")
+    @laminprofiler("k5F8p2Q1nX9a", total_seconds=2)
     def profile_curate_simple_dataframe():
         return 1
 
     assert profile_curate_simple_dataframe() == 1
-    assert (
-        profile_curate_simple_dataframe.__laminprofiler_uid__  # type: ignore[attr-defined]
-        == "k5F8p2Q1nX9a"
+    marked = profile_curate_simple_dataframe
+    assert marked.__laminprofiler_uid__ == "k5F8p2Q1nX9a"  # type: ignore[attr-defined]
+    assert marked.__laminprofiler_total_seconds__ == 2  # type: ignore[attr-defined]
+
+
+def test_laminprofiler_mark_requires_a_uid_or_total_seconds():
+    with pytest.raises(ValueError, match="uid"):
+        laminprofiler()
+    with pytest.raises(ValueError, match="uid"):
+        laminprofiler("")
+    with pytest.raises(ValueError, match="total_seconds"):
+        laminprofiler("k5F8p2Q1nX9a", total_seconds=0)
+
+
+def test_tasks_over_budget_uses_total_seconds_unless_overridden():
+    capped = TaskResult(
+        name="import_lamindb",
+        source="",
+        duration=2,
+        profile_text="",
+        benchmark_json=None,
+        source_hash="",
+        python_version="3.12.0",
+        path="import_lamindb.py",
+        total_seconds=1.5,
     )
+    open_ended = TaskResult(
+        name="describe_a_record",
+        source="",
+        duration=30,
+        profile_text="",
+        benchmark_json=None,
+        source_hash="",
+        python_version="3.12.0",
+        path="describe_a_record.py",
+    )
+    assert [
+        result.name for result, _ in tasks_over_budget([capped, open_ended], None)
+    ] == ["import_lamindb"]
+    assert tasks_over_budget([capped], 3) == []
+    assert [result.name for result, _ in tasks_over_budget([open_ended], 20)] == [
+        "describe_a_record"
+    ]
 
 
 def test_registry_names_are_empty_without_profile_functions(tmp_path: Path):

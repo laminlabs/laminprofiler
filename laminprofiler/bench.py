@@ -29,6 +29,7 @@ class TaskResult:
     python_version: str
     path: str
     uid: str | None = None
+    total_seconds: float | None = None
 
 
 def source_hash(source: str) -> str:
@@ -59,28 +60,69 @@ def function_source(script: Path, name: str) -> str:
 
 
 def function_uid(script: Path, name: str) -> str | None:
-    """Uid from an optional `@uid("...")` decorator, if the function has one."""
+    """Uid from an optional `@laminprofiler("...")` decorator."""
+    return _mark(script, name)[0]
+
+
+def function_total_seconds(script: Path, name: str) -> float | None:
+    """Duration cap from an optional `@laminprofiler(..., total_seconds=...)` decorator."""
+    return _mark(script, name)[1]
+
+
+def _mark(script: Path, name: str) -> tuple[str | None, float | None]:
     tree = ast.parse(script.read_text())
     for node in tree.body:
         if isinstance(node, ast.FunctionDef) and node.name == name:
-            return _uid_from_decorators(node.decorator_list)
-    return None
+            return _mark_from_decorators(node.decorator_list)
+    return None, None
 
 
-def _uid_from_decorators(decorators: list[ast.expr]) -> str | None:
+def _mark_from_decorators(
+    decorators: list[ast.expr],
+) -> tuple[str | None, float | None]:
     for decorator in decorators:
-        if not isinstance(decorator, ast.Call) or not decorator.args:
+        if not isinstance(decorator, ast.Call):
             continue
         func = decorator.func
         called = func.id if isinstance(func, ast.Name) else None
         if called is None and isinstance(func, ast.Attribute):
             called = func.attr
-        if called != "uid":
+        if called != "laminprofiler":
             continue
-        arg = decorator.args[0]
-        if isinstance(arg, ast.Constant) and isinstance(arg.value, str) and arg.value:
-            return arg.value
-    return None
+        uid = None
+        if decorator.args:
+            arg = decorator.args[0]
+            if (
+                isinstance(arg, ast.Constant)
+                and isinstance(arg.value, str)
+                and arg.value
+            ):
+                uid = arg.value
+        total_seconds = None
+        for keyword in decorator.keywords:
+            if keyword.arg != "total_seconds" or not isinstance(
+                keyword.value, ast.Constant
+            ):
+                continue
+            value = keyword.value.value
+            if isinstance(value, bool) or not isinstance(value, int | float):
+                continue
+            if value > 0:
+                total_seconds = float(value)
+        return uid, total_seconds
+    return None, None
+
+
+def tasks_over_budget(
+    results: list[TaskResult], override: float | None
+) -> list[tuple[TaskResult, float]]:
+    """Tasks slower than `total_seconds`, or slower than one command-wide override."""
+    over: list[tuple[TaskResult, float]] = []
+    for result in results:
+        limit = override if override is not None else result.total_seconds
+        if limit is not None and result.duration > limit:
+            over.append((result, limit))
+    return over
 
 
 def task_name(function_name: str) -> str:
@@ -252,6 +294,7 @@ def _run_pytest(scripts: list[Path], *, keyword: str | None) -> list[TaskResult]
             )
             func_name = name.split("[", 1)[0]
             source = function_source(script, func_name)
+            uid, total_seconds = _mark(script, func_name)
             results.append(
                 TaskResult(
                     name=task_name(name),
@@ -262,7 +305,8 @@ def _run_pytest(scripts: list[Path], *, keyword: str | None) -> list[TaskResult]
                     source_hash=source_hash(source),
                     python_version=python_version,
                     path=str(script),
-                    uid=function_uid(script, func_name),
+                    uid=uid,
+                    total_seconds=total_seconds,
                 )
             )
         if not results:
@@ -295,6 +339,7 @@ def _run_import_benchmark(script: Path, name: str) -> TaskResult:
         sys.stderr.write(profile.stderr)
         raise subprocess.CalledProcessError(profile.returncode, profile.args)
     source = function_source(script, name)
+    uid, total_seconds = _mark(script, name)
     rounds = {
         "warmup_rounds": IMPORT_WARMUP_ROUNDS,
         "rounds": measured,
@@ -309,7 +354,8 @@ def _run_import_benchmark(script: Path, name: str) -> TaskResult:
         source_hash=source_hash(source),
         python_version=_python_version(),
         path=str(script),
-        uid=function_uid(script, name),
+        uid=uid,
+        total_seconds=total_seconds,
     )
 
 
