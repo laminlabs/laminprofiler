@@ -6,6 +6,8 @@ BENCHMARKING_SCHEMA_RECORD_NAME = "laminprofiler-benchmarks-record"
 BENCHMARKING_SCHEMA_RECORD_UID = "QlP3YCAkqOaJ1vHa"
 FEATURE_ROOT_TYPE_NAME = "LaminProfiler"
 FEATURE_ROOT_TYPE_UID = "uBBUYLh5VFbo"
+FEATURE_BENCHMARK_TYPE_NAME = "Benchmark"
+FEATURE_BENCHMARK_TYPE_UID = "6azc9bL9cDr8"
 PRODUCTS_TYPE_UID = "tY22ouWHsJKDJaXL"
 GIT_COMMITS_SCHEMA_UID = "LLgPZodc1iazGcVv"
 BENCHMARKING_FEATURE_UIDS = {
@@ -30,6 +32,26 @@ def _get_or_create_feature_type() -> ln.Feature:
     if feature_type is None:
         feature_type = ln.Feature(name=FEATURE_ROOT_TYPE_NAME, is_type=True)
         feature_type.uid = FEATURE_ROOT_TYPE_UID
+        feature_type.save()
+    return feature_type
+
+
+def _get_or_create_benchmark_feature_type() -> ln.Feature:
+    """`LaminProfiler/Benchmark`, the type for benchmarking measurement features."""
+    root = _get_or_create_feature_type()
+    feature_type = ln.Feature.filter(uid=FEATURE_BENCHMARK_TYPE_UID).one_or_none()
+    if feature_type is None:
+        feature_type = ln.Feature.filter(
+            name=FEATURE_BENCHMARK_TYPE_NAME, is_type=True, type=root
+        ).one_or_none()
+    if feature_type is None:
+        feature_type = ln.Feature(
+            name=FEATURE_BENCHMARK_TYPE_NAME, is_type=True, type=root
+        )
+        feature_type.uid = FEATURE_BENCHMARK_TYPE_UID
+        return feature_type.save()
+    if feature_type.type_id != root.id:
+        feature_type.type = root
         feature_type.save()
     return feature_type
 
@@ -93,9 +115,6 @@ def _get_or_create_feature(
         if uid is not None and ln.Feature.filter(uid=uid).one_or_none() is None:
             feature.uid = uid
         return feature.save()
-    if feature.type_id != feature_type.id:
-        feature.type = feature_type
-        feature.save()
     return feature
 
 
@@ -106,7 +125,7 @@ def _optional(feature: ln.Feature):
 def product_feature(feature_type: ln.Feature | None = None) -> ln.Feature:
     """The one `product` feature, shared by GitCommits and benchmark artifacts."""
     if feature_type is None:
-        feature_type = _get_or_create_feature_type()
+        feature_type = _get_or_create_benchmark_feature_type()
     return _get_or_create_feature(
         "product", products_type(), feature_type, uid=PRODUCT_FEATURE_UID
     )
@@ -215,7 +234,7 @@ def _sync_schema(name: str, required: list, optional: list, *, uid: str) -> ln.S
 
 
 def get_or_create_schema() -> ln.Schema:
-    feature_type = _get_or_create_feature_type()
+    feature_type = _get_or_create_benchmark_feature_type()
     required, optional = _base_features(feature_type)
     return _sync_schema(
         BENCHMARKING_SCHEMA_RECORD_NAME,
@@ -227,7 +246,7 @@ def get_or_create_schema() -> ln.Schema:
 
 def get_or_create_artifact_schema() -> ln.Schema:
     """Schema for one benchmark run: record features plus product, task, and benchmark."""
-    feature_type = _get_or_create_feature_type()
+    feature_type = _get_or_create_benchmark_feature_type()
     required, optional = _base_features(feature_type)
     product = product_feature(feature_type)
     ensure_git_commits_schema(product)

@@ -45,7 +45,7 @@ When a benchmark run writes records, laminprofiler:
   - `python_version`
   - `created_at`
   - `run`
-- registers those features under the `LaminProfiler` feature type
+- registers those features under the `LaminProfiler/Benchmark` feature type
 - creates (or reuses) the top-level `LaminProfiler` record type
 - creates (or reuses) the package type (`<repo_name>`, normalized with `_`)
 - creates one task type per `profile_*` function, without the `profile_` prefix
