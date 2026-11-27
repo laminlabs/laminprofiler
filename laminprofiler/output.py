@@ -106,13 +106,28 @@ def benchmark_payload(result: TaskResult) -> dict | None:
 
 
 def categorical_column_names(features) -> list[str]:
-    """Feature names stored as categoricals, such as record links."""
-    names: list[str] = []
+    """Feature uids stored as categoricals, such as record links."""
+    columns: list[str] = []
     for feature in features:
         dtype = getattr(feature, "dtype_as_str", None) or ""
-        if dtype.startswith("cat"):
-            names.append(feature.name)
-    return names
+        if dtype.startswith("cat") and feature.uid:
+            columns.append(feature.uid)
+    return columns
+
+
+def use_feature_uid_columns(frame, features):
+    """Rename feature-name columns to feature uids.
+
+    A schema with ``itype`` ``Feature.uid`` identifies each parquet column by
+    that feature's uid.
+    """
+    rename = {}
+    for feature in features:
+        if feature.name in frame.columns and feature.uid:
+            rename[feature.name] = feature.uid
+    if not rename:
+        return frame
+    return frame.rename(columns=rename)
 
 
 def cast_categorical_columns(frame, columns: list[str]):

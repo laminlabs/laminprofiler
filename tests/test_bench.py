@@ -279,6 +279,27 @@ def test_benchmark_payload_omits_empty_dicts():
     }
 
 
+def test_parquet_columns_are_feature_uids():
+    import pandas as pd
+    from laminprofiler.output import categorical_column_names, use_feature_uid_columns
+
+    class Feature:
+        def __init__(self, name, uid, dtype):
+            self.name = name
+            self.uid = uid
+            self.dtype_as_str = dtype
+
+    features = [
+        Feature("product", "nc9f3tG4LUoF", "cat[Record[x]]"),
+        Feature("duration_in_sec", "QsC24kltUffN", "float"),
+    ]
+    frame = pd.DataFrame([{"product": "lamindb", "duration_in_sec": 1.2}])
+    renamed = use_feature_uid_columns(frame, features)
+    assert list(renamed.columns) == ["nc9f3tG4LUoF", "QsC24kltUffN"]
+    assert renamed["nc9f3tG4LUoF"].iloc[0] == "lamindb"
+    assert categorical_column_names(features) == ["nc9f3tG4LUoF"]
+
+
 def test_record_registry_is_requested_only_for_records_output():
     from laminprofiler.output import record_registry_requested
 

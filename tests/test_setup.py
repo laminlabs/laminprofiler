@@ -23,9 +23,22 @@ class Query:
         return iter(self._records)
 
 
+class _FeatureUid:
+    """Class access is the field `ln.Feature.uid`. Instances store their own uid."""
+
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self
+        return obj.__dict__.get("uid")
+
+    def __set__(self, obj, value):
+        obj.__dict__["uid"] = value
+
+
 class FakeFeature:
     _store: list[FakeFeature] = []
     _next_id = 1
+    uid = _FeatureUid()
 
     def __init__(
         self, name, dtype=None, *, type=None, is_type=False, values_through=None
@@ -94,13 +107,14 @@ class FakeSchema:
     _by_uid: dict[str, FakeSchema] = {}
     _next_id = 1
 
-    def __init__(self, *, features=None, name, is_type=False, type=None):
+    def __init__(self, *, features=None, name, is_type=False, type=None, itype=None):
         self.name = name
         self.is_type = is_type
         self.id = FakeSchema._next_id
         FakeSchema._next_id += 1
         self.type = type
         self.uid = None
+        self.itype = "Feature.uid" if itype is FakeFeature.uid else itype
         self._features = []
         for feature in features or []:
             self._features.append(feature[0] if isinstance(feature, tuple) else feature)
@@ -246,6 +260,8 @@ def test_setup_creates_registry_with_expected_schema(monkeypatch):
     assert schema.type.name == module.SCHEMA_ROOT_TYPE_NAME
     assert schema.type.uid == module.SCHEMA_ROOT_TYPE_UID
     assert schema.type.is_type
+    assert schema.itype == module.FEATURE_UID_ITYPE
+    assert schema.type.itype == module.FEATURE_UID_ITYPE
     features = {feature.name: feature for feature in schema.features.all()}
     assert set(features) == set(module.BENCHMARKING_FEATURE_UIDS) | {"commit_hash16"}
     pinned = {name: features[name] for name in module.BENCHMARKING_FEATURE_UIDS}
@@ -300,6 +316,7 @@ def test_setup_adds_missing_optional_features(monkeypatch):
 
     assert schema is existing
     assert schema.uid == module.BENCHMARKING_SCHEMA_RECORD_UID
+    assert schema.itype == module.FEATURE_UID_ITYPE
     assert {feature.name for feature in schema.features.all()} == set(
         module.BENCHMARKING_FEATURE_UIDS
     ) | {"commit_hash16"}
@@ -384,6 +401,7 @@ def test_git_commit_features_are_created(monkeypatch):
     schema = module.ensure_git_commits_schema()
     assert schema.type.uid == module.SCHEMA_ROOT_TYPE_UID
     assert schema.type.is_type
+    assert schema.itype == module.FEATURE_UID_ITYPE
     features = {feature.name: feature for feature in schema.features.all()}
     hash16 = features["hash16"]
     assert hash16.uid == module.GIT_COMMITS_FEATURE_UIDS["hash16"]
@@ -421,6 +439,7 @@ def test_artifact_schema_adds_product_task_and_benchmark(monkeypatch):
     assert schema.uid == module.BENCHMARKING_SCHEMA_ARTIFACT_UID
     assert schema.type.uid == module.SCHEMA_ROOT_TYPE_UID
     assert schema.type.is_type
+    assert schema.itype == module.FEATURE_UID_ITYPE
     assert features["product"].dtype.uid == "tY22ouWHsJKDJaXL"
     assert features["product"].uid == module.ROOT_FEATURE_UIDS["product"]
     assert features["product"].type.uid == module.FEATURE_ROOT_TYPE_UID
