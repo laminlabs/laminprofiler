@@ -31,13 +31,20 @@ When a run writes records, laminprofiler:
 - registers those features under the `LaminProfiler` feature type
 - creates (or reuses) the top-level `LaminProfiler` record type
 - creates (or reuses) the package type (`<repo_name>`, normalized with `_`)
-- creates one task type per script, or per `profile_*` function when a file defines any
+- creates one task type per `profile_*` function
 
-## Function benchmarks
+## Benchmarks
 
-A file that defines `profile_*` functions is run with pytest-benchmark. Import and fixtures are outside the median. `benchmark.pedantic` owns the rounds, and its `teardown` runs between rounds. After the timed rounds, laminprofiler profiles that same callable once with pyinstrument. That profile is not part of `duration_in_sec`.
+Every task is a `profile_*` function run with pytest. Import and fixtures stay outside the median. `benchmark.pedantic` owns the rounds, and its `teardown` runs between rounds. After the timed rounds, laminprofiler profiles that same callable once with pyinstrument. That profile is not part of `duration_in_sec`.
 
 Name the file something other than `test_*.py`, so the package's normal pytest run does not collect it.
+
+An import benchmark is a `profile_import_*` function with no arguments. Each round starts a new Python process, so the import runs again instead of hitting `sys.modules`. The first round is dropped and the median of the remaining rounds is `duration_in_sec`.
+
+```python
+def profile_import_lamindb():
+    import lamindb
+```
 
 ```python
 def profile_curate_simple_dataframe(benchmark, mini_immuno):
@@ -54,32 +61,4 @@ def profile_curate_simple_dataframe(benchmark, mini_immuno):
 
 ```bash
 laminprofiler tests/profiling/curate.py --threshold 2
-```
-
-## Script profiles
-
-A `tests/profiling/*.py` file with no `profile_*` function is timed as a whole process with pyinstrument. Use this for import and cold-start tasks. `--repeats` greater than 1 drops the first run as warmup.
-
-```bash
-laminprofiler tests/profiling
-laminprofiler tests/profiling/import_lamindb.py --threshold 1.5
-```
-
-## Optional `cleanup()` hook for profiling scripts
-
-If a profiling script defines a top-level `cleanup()` function, `laminprofiler` calls it after each script run. This is useful for deleting benchmark artifacts between repeats.
-
-Use the script pattern below so importing the script does not run the benchmark body:
-
-```python
-def main():
-    ...
-
-
-def cleanup():
-    ...
-
-
-if __name__ == "__main__":
-    main()
 ```

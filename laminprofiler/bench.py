@@ -7,9 +7,11 @@ import hashlib
 import json
 import os
 import re
+import statistics
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,6 +27,7 @@ class TaskResult:
     benchmark_json: str | None
     source_hash: str
     python_version: str
+    path: str
 
 
 def source_hash(source: str) -> str:
@@ -55,11 +58,8 @@ def function_source(script: Path, name: str) -> str:
 
 
 def registry_names(script: Path) -> list[str]:
-    """Task names a profiling file contributes to the LaminProfiler registry."""
-    names = profile_function_names(script)
-    if names:
-        return names
-    return [script.stem]
+    """`profile_*` functions a profiling file contributes to the registry."""
+    return profile_function_names(script)
 
 
 def profiling_scripts(path: Path) -> list[Path]:
@@ -96,12 +96,62 @@ def package_name_from_path(path: Path, *, cwd: Path | None = None) -> str:
     return root.name.replace("-", "_")
 
 
-def run_function_benchmarks(script: Path) -> list[TaskResult]:
-    """Time `profile_*` functions with pytest-benchmark, then profile each once.
+IMPORT_WARMUP_ROUNDS = 1
+IMPORT_ROUNDS = 5
 
-    The pyinstrument pass runs after the timed rounds, so it is not part of
-    `duration`.
+
+def _is_import_benchmark(name: str) -> bool:
+    return name.startswith("profile_import_")
+
+
+def _parameter_names(script: Path, name: str) -> list[str]:
+    tree = ast.parse(script.read_text())
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return [arg.arg for arg in node.args.args]
+    raise LookupError(f"Function {name} not found in {script}")
+
+
+def run_benchmarks(targets: Path | list[Path]) -> list[TaskResult]:
+    """Time `profile_*` functions with pytest, then profile each once.
+
+    pytest-benchmark owns the rounds. The pyinstrument pass runs after those
+    rounds, so it is not part of `duration`.
+
+    `profile_import_*` functions are the exception: each round is a new
+    Python process, so a repeated import is measured again.
     """
+    scripts = [targets] if isinstance(targets, Path) else list(targets)
+    scripts = [script.resolve() for script in scripts]
+    if not scripts:
+        raise RuntimeError("No profiling scripts were given")
+    import_tasks = [
+        (script, name)
+        for script in scripts
+        for name in profile_function_names(script)
+        if _is_import_benchmark(name)
+    ]
+    pytest_scripts = [
+        script
+        for script in scripts
+        if any(
+            not _is_import_benchmark(name) for name in profile_function_names(script)
+        )
+    ]
+    results: list[TaskResult] = []
+    if pytest_scripts:
+        keyword = "not profile_import_" if import_tasks else None
+        results.extend(_run_pytest(pytest_scripts, keyword=keyword))
+    results.extend(_run_import_benchmark(script, name) for script, name in import_tasks)
+    if not results:
+        joined = ", ".join(str(script) for script in scripts)
+        raise RuntimeError(f"No profile_* benchmarks ran in {joined}")
+    return results
+
+
+def _run_pytest(scripts: list[Path], *, keyword: str | None) -> list[TaskResult]:
+    """Run in-process `profile_*` benchmarks in one pytest session."""
+    rootdir = Path(os.path.commonpath([script.parent for script in scripts]))
     with tempfile.TemporaryDirectory() as directory:
         out = Path(directory)
         env = os.environ.copy()
@@ -114,7 +164,7 @@ def run_function_benchmarks(script: Path) -> list[TaskResult]:
             sys.executable,
             "-m",
             "pytest",
-            str(script.resolve()),
+            *[str(script) for script in scripts],
             "-p",
             "pytest_benchmark.plugin",
             "-p",
@@ -129,11 +179,13 @@ def run_function_benchmarks(script: Path) -> list[TaskResult]:
             "addopts=",
             "--noconftest",
             "--rootdir",
-            str(script.parent),
+            str(rootdir),
             "-s",
             "--tb=short",
             "-q",
         ]
+        if keyword is not None:
+            command.extend(["-k", keyword])
         completed = subprocess.run(
             command,
             env=env,
@@ -143,8 +195,12 @@ def run_function_benchmarks(script: Path) -> list[TaskResult]:
         )
         sys.stdout.write(completed.stdout)
         sys.stderr.write(completed.stderr)
-        if completed.returncode != 0:
+        # 5 is pytest's "no tests collected".
+        if completed.returncode not in (0, 5):
             raise subprocess.CalledProcessError(completed.returncode, command)
+        if not benchmark_json.exists():
+            joined = ", ".join(str(script) for script in scripts)
+            raise RuntimeError(f"No profile_* benchmarks ran in {joined}")
         payload = json.loads(benchmark_json.read_text())
         python_version = (
             payload.get("machine_info", {}).get("python_version")
@@ -153,15 +209,17 @@ def run_function_benchmarks(script: Path) -> list[TaskResult]:
         results: list[TaskResult] = []
         for benchmark in payload.get("benchmarks", []):
             name = benchmark["name"]
+            fullname = benchmark["fullname"]
+            script = _script_for_node(fullname, scripts, rootdir)
             stats = benchmark["stats"]
             duration = float(stats.get("median", stats["mean"]))
-            profile_path = out / f"{_safe_name(name)}.txt"
+            profile_path = out / f"{_safe_name(fullname)}.txt"
             profile_text = (
                 profile_path.read_text()
                 if profile_path.exists()
                 else "No pyinstrument profile was captured.\n"
             )
-            source = function_source(script, name)
+            source = function_source(script, name.split("[", 1)[0])
             results.append(
                 TaskResult(
                     name=name,
@@ -171,11 +229,111 @@ def run_function_benchmarks(script: Path) -> list[TaskResult]:
                     benchmark_json=json.dumps(benchmark, indent=2),
                     source_hash=source_hash(source),
                     python_version=python_version,
+                    path=str(script),
                 )
             )
         if not results:
-            raise RuntimeError(f"No profile_* benchmarks ran in {script}")
+            joined = ", ".join(str(script) for script in scripts)
+            raise RuntimeError(f"No profile_* benchmarks ran in {joined}")
         return results
+
+
+def _run_import_benchmark(script: Path, name: str) -> TaskResult:
+    """Time one import benchmark. Every round is a new Python process."""
+    if _parameter_names(script, name):
+        raise RuntimeError(
+            f"{name} runs in a fresh Python process per round and takes no arguments"
+        )
+    call = _import_call_source(script, name)
+    durations: list[float] = []
+    for _ in range(IMPORT_WARMUP_ROUNDS + IMPORT_ROUNDS):
+        started = time.perf_counter()
+        completed = _run_python(call)
+        durations.append(time.perf_counter() - started)
+        sys.stdout.write(completed.stdout)
+        sys.stderr.write(completed.stderr)
+        if completed.returncode != 0:
+            raise subprocess.CalledProcessError(completed.returncode, completed.args)
+    measured = durations[IMPORT_WARMUP_ROUNDS:]
+    median = statistics.median(measured)
+    profile = _run_python(_import_profile_source(script, name))
+    if profile.returncode != 0:
+        sys.stdout.write(profile.stdout)
+        sys.stderr.write(profile.stderr)
+        raise subprocess.CalledProcessError(profile.returncode, profile.args)
+    source = function_source(script, name)
+    rounds = {
+        "warmup_rounds": IMPORT_WARMUP_ROUNDS,
+        "rounds": measured,
+        "median": median,
+    }
+    return TaskResult(
+        name=name,
+        source=source,
+        duration=median,
+        profile_text=profile.stdout,
+        benchmark_json=json.dumps(rounds, indent=2),
+        source_hash=source_hash(source),
+        python_version=_python_version(),
+        path=str(script),
+    )
+
+
+def _python_version() -> str:
+    return f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+
+
+def _import_call_source(script: Path, name: str) -> str:
+    return (
+        "import importlib.util\n"
+        f"spec = importlib.util.spec_from_file_location('_laminprofiler_import', {str(script)!r})\n"
+        "module = importlib.util.module_from_spec(spec)\n"
+        "spec.loader.exec_module(module)\n"
+        f"getattr(module, {name!r})()\n"
+    )
+
+
+def _import_profile_source(script: Path, name: str) -> str:
+    return (
+        "from pyinstrument import Profiler\n"
+        "import importlib.util\n"
+        f"spec = importlib.util.spec_from_file_location('_laminprofiler_import', {str(script)!r})\n"
+        "module = importlib.util.module_from_spec(spec)\n"
+        "profiler = Profiler()\n"
+        "profiler.start()\n"
+        "try:\n"
+        "    spec.loader.exec_module(module)\n"
+        f"    getattr(module, {name!r})()\n"
+        "finally:\n"
+        "    profiler.stop()\n"
+        "print(profiler.output_text(unicode=True, color=False), end='')\n"
+    )
+
+
+def _run_python(source: str) -> subprocess.CompletedProcess[str]:
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "run.py"
+        path.write_text(source)
+        return subprocess.run(
+            [sys.executable, str(path)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+
+def _script_for_node(fullname: str, scripts: list[Path], rootdir: Path) -> Path:
+    """Map a pytest node id back to one of the files that were run."""
+    node_file = Path(fullname.split("::", 1)[0])
+    by_resolved = {script.resolve(): script for script in scripts}
+    candidates = [node_file]
+    if not node_file.is_absolute():
+        candidates = [rootdir / node_file, node_file]
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved in by_resolved:
+            return by_resolved[resolved]
+    raise LookupError(f"No profiling file for {fullname}")
 
 
 def _safe_name(name: str) -> str:

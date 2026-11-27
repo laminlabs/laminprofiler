@@ -64,7 +64,7 @@ def pytest_runtest_call(item: pytest.Item):
         profile_text = profiler.output_text(unicode=True, color=False)
         profile_dir = os.environ.get("LAMINPROFILER_PROFILE_DIR")
         if profile_dir:
-            path = Path(profile_dir) / f"{_safe_name(item.name)}.txt"
+            path = Path(profile_dir) / f"{_safe_name(item.nodeid)}.txt"
             path.write_text(profile_text)
     finally:
         teardown = state.get("teardown")
