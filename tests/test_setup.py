@@ -93,9 +93,13 @@ class FakeRecord:
         self.schema = schema
         self.type = type
         self.schema_id = 1 if schema is not None else None
+        self.uid = None
 
     @classmethod
-    def filter(cls, *, name, is_type, type=None):
+    def filter(cls, *, name=None, is_type=None, type=None, uid=None):
+        if uid is not None and name is None:
+            record = next((item for item in cls._store if item.uid == uid), None)
+            return Query(record)
         record = next(
             (
                 item
@@ -206,3 +210,38 @@ def test_setup_creates_str_runner_env_beside_legacy_ulabel(monkeypatch):
     assert runner_env.dtype is str
     assert runner_env.uid != legacy.uid
     assert legacy.type is None
+
+
+def test_setup_keeps_a_task_uid_when_the_name_changes(monkeypatch):
+    module = _load_setup(monkeypatch)
+    module.setup(
+        package_name="example_pkg",
+        task_names=["curate_simple_dataframe"],
+        verbose=False,
+    )
+    module.setup(
+        package_name="example_pkg",
+        task_names=["curate_simple_dataframe"],
+        task_uids={"curate_simple_dataframe": "k5F8p2Q1nX9a"},
+        verbose=False,
+    )
+    module.setup(
+        package_name="example_pkg",
+        task_names=["curate_dataframe"],
+        task_uids={"curate_dataframe": "k5F8p2Q1nX9a"},
+        verbose=False,
+    )
+    registry = FakeRecord.filter(name="LaminProfiler", is_type=True).one_or_none()
+    package = FakeRecord.filter(
+        name="example_pkg", is_type=True, type=registry
+    ).one_or_none()
+    renamed = FakeRecord.filter(uid="k5F8p2Q1nX9a").one_or_none()
+    assert renamed is not None
+    assert renamed.name == "curate_dataframe"
+    assert renamed.type is package
+    assert (
+        FakeRecord.filter(
+            name="curate_simple_dataframe", is_type=True, type=package
+        ).one_or_none()
+        is None
+    )

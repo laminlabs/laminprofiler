@@ -28,6 +28,7 @@ class TaskResult:
     source_hash: str
     python_version: str
     path: str
+    uid: str | None = None
 
 
 def source_hash(source: str) -> str:
@@ -55,6 +56,31 @@ def function_source(script: Path, name: str) -> str:
             if segment is not None:
                 return segment
     raise LookupError(f"Function {name} not found in {script}")
+
+
+def function_uid(script: Path, name: str) -> str | None:
+    """Uid from an optional `@uid("...")` decorator, if the function has one."""
+    tree = ast.parse(script.read_text())
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return _uid_from_decorators(node.decorator_list)
+    return None
+
+
+def _uid_from_decorators(decorators: list[ast.expr]) -> str | None:
+    for decorator in decorators:
+        if not isinstance(decorator, ast.Call) or not decorator.args:
+            continue
+        func = decorator.func
+        called = func.id if isinstance(func, ast.Name) else None
+        if called is None and isinstance(func, ast.Attribute):
+            called = func.attr
+        if called != "uid":
+            continue
+        arg = decorator.args[0]
+        if isinstance(arg, ast.Constant) and isinstance(arg.value, str) and arg.value:
+            return arg.value
+    return None
 
 
 def task_name(function_name: str) -> str:
@@ -224,7 +250,8 @@ def _run_pytest(scripts: list[Path], *, keyword: str | None) -> list[TaskResult]
                 if profile_path.exists()
                 else "No pyinstrument profile was captured.\n"
             )
-            source = function_source(script, name.split("[", 1)[0])
+            func_name = name.split("[", 1)[0]
+            source = function_source(script, func_name)
             results.append(
                 TaskResult(
                     name=task_name(name),
@@ -235,6 +262,7 @@ def _run_pytest(scripts: list[Path], *, keyword: str | None) -> list[TaskResult]
                     source_hash=source_hash(source),
                     python_version=python_version,
                     path=str(script),
+                    uid=function_uid(script, func_name),
                 )
             )
         if not results:
@@ -281,6 +309,7 @@ def _run_import_benchmark(script: Path, name: str) -> TaskResult:
         source_hash=source_hash(source),
         python_version=_python_version(),
         path=str(script),
+        uid=function_uid(script, name),
     )
 
 

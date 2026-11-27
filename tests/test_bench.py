@@ -1,9 +1,11 @@
 from pathlib import Path
 
 import pytest
+from laminprofiler import uid
 from laminprofiler.bench import (
     IMPORT_ROUNDS,
     IMPORT_WARMUP_ROUNDS,
+    function_uid,
     package_name_from_path,
     profile_function_names,
     profiling_scripts,
@@ -23,6 +25,32 @@ def test_registry_names_follow_profile_functions(tmp_path: Path):
     )
     assert profile_function_names(script) == ["profile_curate_simple_dataframe"]
     assert registry_names(script) == ["curate_simple_dataframe"]
+
+
+def test_function_uid_is_optional(tmp_path: Path):
+    script = tmp_path / "curate.py"
+    script.write_text(
+        "from laminprofiler import uid\n"
+        "\n"
+        "@uid('k5F8p2Q1nX9a')\n"
+        "def profile_curate_simple_dataframe():\n"
+        "    return 1\n"
+        "\n"
+        "def profile_other():\n"
+        "    return 2\n"
+    )
+    assert function_uid(script, "profile_curate_simple_dataframe") == "k5F8p2Q1nX9a"
+    assert function_uid(script, "profile_other") is None
+
+    @uid("k5F8p2Q1nX9a")
+    def profile_curate_simple_dataframe():
+        return 1
+
+    assert profile_curate_simple_dataframe() == 1
+    assert (
+        profile_curate_simple_dataframe.__laminprofiler_uid__  # type: ignore[attr-defined]
+        == "k5F8p2Q1nX9a"
+    )
 
 
 def test_registry_names_are_empty_without_profile_functions(tmp_path: Path):

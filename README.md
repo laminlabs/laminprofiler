@@ -62,3 +62,13 @@ def profile_curate_simple_dataframe(benchmark, mini_immuno):
 ```bash
 laminprofiler tests/profiling/curate.py --threshold 2
 ```
+
+Pytest identifies a test by its file and function name, so renaming a function starts a new task. `@uid()` is optional. When you add one, laminprofiler keeps the same task record and updates its name.
+
+```python
+from laminprofiler import uid
+
+@uid("k5F8p2Q1nX9a")
+def profile_curate_simple_dataframe(benchmark, mini_immuno):
+    ...
+```
