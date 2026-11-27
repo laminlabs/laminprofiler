@@ -323,6 +323,7 @@ def test_artifact_schema_adds_product_task_and_benchmark(monkeypatch):
     features = {feature.name: feature for feature in schema.features.all()}
     assert schema.name == "laminprofiler-artifact"
     assert features["product"].dtype.uid == "tY22ouWHsJKDJaXL"
+    assert features["product"].uid == module.PRODUCT_FEATURE_UID
     assert features["task_name"].dtype is str
     assert features["task_uid"].dtype is str
     assert features["benchmark"].dtype is dict

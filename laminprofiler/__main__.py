@@ -29,6 +29,7 @@ from laminprofiler.output import (
 )
 from laminprofiler.setup import (
     COMMIT_HASH16_UID,
+    PRODUCT_FEATURE_UID,
     ensure_git_commit,
     get_or_create_artifact_schema,
     require_product,
@@ -183,9 +184,9 @@ def _save_coverage_record(coverage_xml: Path, product_name: str) -> None:
     hash16 = current_commit_hash16()
     if hash16 is None:
         raise click.ClickException("Could not resolve the git commit.")
-    product = _product(product_name)
+    product_record = _product(product_name)
     extra = github_run_extra_data()
-    git_commit_record = ensure_git_commit(hash16, product)
+    git_commit_record = ensure_git_commit(hash16, product_record)
     git_commit_record.features.update_values(
         {
             "coverage": ratio,
@@ -195,12 +196,17 @@ def _save_coverage_record(coverage_xml: Path, product_name: str) -> None:
     commit_hash16 = next(
         feature for feature in schema.features.all() if feature.uid == COMMIT_HASH16_UID
     )
+    product_feature = next(
+        feature
+        for feature in schema.features.all()
+        if feature.uid == PRODUCT_FEATURE_UID
+    )
     ln.Artifact(
         coverage_xml,
         description=COVERAGE_DESCRIPTION,
         kind=ARTIFACT_KIND,
         extra_data=extra,
-        features={commit_hash16: git_commit_record},
+        features={commit_hash16: git_commit_record, product_feature: product_record},
     ).save()
 
 
