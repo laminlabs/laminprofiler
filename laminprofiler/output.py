@@ -72,11 +72,37 @@ def current_runner_env() -> str | None:
     return None
 
 
+def _drop_empty_dicts(value):
+    """Omit empty dicts. Parquet cannot write a struct with no fields."""
+    if isinstance(value, dict):
+        cleaned = {}
+        for key, item in value.items():
+            item = _drop_empty_dicts(item)
+            if isinstance(item, dict) and not item:
+                continue
+            cleaned[key] = item
+        return cleaned
+    if isinstance(value, list):
+        cleaned = []
+        for item in value:
+            item = _drop_empty_dicts(item)
+            if isinstance(item, dict) and not item:
+                item = None
+            cleaned.append(item)
+        return cleaned
+    return value
+
+
 def benchmark_payload(result: TaskResult) -> dict | None:
     """Parsed per-task benchmark stats."""
     if result.benchmark_json is None:
         return None
-    return json.loads(result.benchmark_json)
+    # pytest-benchmark stores extra_info as {} unless a test fills it.
+    # An empty dict becomes a struct with no fields, which Parquet rejects.
+    payload = _drop_empty_dicts(json.loads(result.benchmark_json))
+    if not payload:
+        return None
+    return payload
 
 
 def categorical_column_names(features) -> list[str]:
