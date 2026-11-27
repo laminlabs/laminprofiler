@@ -76,12 +76,9 @@ def _display_path(path: Path) -> Path:
 _RESULTS: dict[str, tuple[TaskResult, str, str, str | None, str | None]] = {}
 
 
-@ln.step()
-def record_benchmark(task: str, source: str) -> None:
-    """Save one measurement. `source` is the code that ran."""
+def record_benchmark(task: str) -> None:
+    """Save one measurement on the current flow run."""
     result, package_name, version, commit, runner = _RESULTS[task]
-    if source != result.source:
-        raise click.ClickException(f"Source for {task} does not match the measurement")
     package = ln.Record.get(name=package_name, type__name="LaminProfiler", is_type=True)
     task_type = ln.Record.get(name=task, type=package, is_type=True)
     extra_data = None
@@ -186,10 +183,7 @@ def main(paths: tuple[str, ...], threshold: float | None) -> None:
                     commit,
                     runner,
                 )
-                record_benchmark(
-                    task=result.name,
-                    source=result.source,
-                )
+                record_benchmark(task=result.name)
 
     too_slow = tasks_over_budget(results, threshold)
     if too_slow:
