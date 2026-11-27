@@ -91,12 +91,12 @@ laminprofiler benchmark tests/profiling
 laminprofiler benchmark tests/profiling/curate.py --threshold 2
 ```
 
-Pytest identifies a test by its file and function name, so renaming a function starts a new task. `@laminprofiler` is optional. Pass a uid to keep the same task record when the function is renamed. Pass `total_seconds` to fail the run when that task is slower. `--threshold` overrides every `total_seconds` for that one run.
+Pytest identifies a test by its file and function name, so renaming a function starts a new task. `@laminprofiler` is optional. Pass a uid to keep the same task record when the function is renamed. Pass `fail_seconds` to fail the run when that task is slower. `--threshold` overrides every `fail_seconds` for that one run.
 
 ```python
 from laminprofiler import laminprofiler
 
-@laminprofiler("k5F8p2Q1nX9a", total_seconds=2)
+@laminprofiler("k5F8p2Q1nX9a", fail_seconds=2)
 def profile_curate_simple_dataframe(benchmark, mini_immuno):
     ...
 ```
