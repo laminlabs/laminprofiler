@@ -15,7 +15,7 @@ laminprofiler benchmark profiling_tests/my_script.py --threshold 1.5
 
 A directory runs each Python file placed directly in it, and skips `conftest.py` plus helper files whose names start with `_`. One `--threshold` applies to every task in that run.
 
-The default `--output-format parquet` saves one unkeyed artifact for the run (`description="benchmarks"`, `kind="laminprofiler"`). On GitHub Actions the artifact's `extra_data` includes `gh_run_id`. The artifact uses the `laminprofiler-artifact` schema, with one row per task:
+The default `--output-format parquet` saves one unkeyed artifact for the run (`description="benchmarks"`, `kind="laminprofiler"`). On GitHub Actions the artifact's `extra_data` includes `gh_run_id`. The artifact uses the `laminprofiler-benchmarks-artifact` schema, with one row per task:
 
 - `product` (a Products record)
 - `task_name`
@@ -36,7 +36,7 @@ The default `--output-format parquet` saves one unkeyed artifact for the run (`d
 
 When a benchmark run writes records, laminprofiler:
 
-- creates the `laminprofiler-records` schema with features:
+- creates the `laminprofiler-benchmarks-record` schema with features:
   - `package_version`
   - `duration_in_sec`
   - `commit_hash16`
@@ -45,7 +45,7 @@ When a benchmark run writes records, laminprofiler:
   - `python_version`
   - `created_at`
   - `run`
-- registers those features under the `LaminProfiler` feature type
+- registers those features under the `LaminProfiler/Benchmark` feature type
 - creates (or reuses) the top-level `LaminProfiler` record type
 - creates (or reuses) the package type (`<repo_name>`, normalized with `_`)
 - creates one task type per `profile_*` function, without the `profile_` prefix

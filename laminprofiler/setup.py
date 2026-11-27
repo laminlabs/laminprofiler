@@ -1,13 +1,31 @@
 import lamindb as ln
 
-LAMINPROFILER_SCHEMA_NAME = "laminprofiler-records"
-LAMINPROFILER_ARTIFACT_SCHEMA_NAME = "laminprofiler-artifact"
-FEATURE_TYPE_NAME = "LaminProfiler"
-FEATURE_TYPE_UID = "uBBUYLh5VFbo"
+BENCHMARKING_SCHEMA_ARTIFACT_NAME = "BenchmarksArtifact"
+BENCHMARKING_SCHEMA_ARTIFACT_UID = "3ARwY7IfXNxWu2qw"
+BENCHMARKING_SCHEMA_RECORD_NAME = "BenchmarksRecord"
+BENCHMARKING_SCHEMA_RECORD_UID = "QlP3YCAkqOaJ1vHa"
+FEATURE_ROOT_TYPE_NAME = "LaminProfiler"
+FEATURE_ROOT_TYPE_UID = "uBBUYLh5VFbo"
+SCHEMA_ROOT_TYPE_NAME = "LaminProfiler"
+SCHEMA_ROOT_TYPE_UID = "RsBH0gBvJVp3GL2w"
+ROOT_FEATURE_UIDS = {
+    "product": "nc9f3tG4LUoF",
+    "commit_hash16": "tViF46horYOI",
+}
+FEATURE_BENCHMARKS_TYPE_NAME = "Benchmarks"
+FEATURE_BENCHMARKS_TYPE_UID = "6azc9bL9cDr8"
 PRODUCTS_TYPE_UID = "tY22ouWHsJKDJaXL"
 GIT_COMMITS_SCHEMA_UID = "LLgPZodc1iazGcVv"
-# Uids registered for the scalar measurement features.
-FEATURE_UIDS = {
+GIT_COMMITS_FEATURE_TYPE_NAME = "GitCommits"
+GIT_COMMITS_FEATURE_TYPE_UID = "xtViAXH9Dc5j"
+GIT_COMMITS_FEATURE_UIDS = {
+    "hash16": "FN9b8rciIUuG",
+    "coverage": "uJfnb8JLsgnZ",
+    "created_at": "RlauhnuzKHGs",
+    "coverage_xml": "fvm3IcD1pqNw",
+    "benchmarks": "LYDfg089ObnS",
+}
+BENCHMARKING_FEATURE_UIDS = {
     "package_version": "3jrklzyM82cU",
     "duration_in_sec": "QsC24kltUffN",
     "runner_env": "fJUXc02btoaI",
@@ -16,19 +34,52 @@ FEATURE_UIDS = {
     "created_at": "nXiW5L1obr3u",
     "run": "z4SI35hBSvVw",
 }
-COMMIT_HASH16_UID = "tViF46horYOI"
-PRODUCT_FEATURE_UID = "nc9f3tG4LUoF"
+
+
+def _get_or_create_schema_type() -> ln.Schema:
+    """`LaminProfiler` schema type for the benchmarking schemas."""
+    schema_type = ln.Schema.filter(uid=SCHEMA_ROOT_TYPE_UID).one_or_none()
+    if schema_type is None:
+        schema_type = ln.Schema.filter(
+            name=SCHEMA_ROOT_TYPE_NAME, is_type=True
+        ).one_or_none()
+    if schema_type is None:
+        schema_type = ln.Schema(name=SCHEMA_ROOT_TYPE_NAME, is_type=True)
+        # Schema.__init__ assigns a random uid. Replace it before the first save.
+        schema_type.uid = SCHEMA_ROOT_TYPE_UID
+        schema_type.save()
+    return schema_type
 
 
 def _get_or_create_feature_type() -> ln.Feature:
-    feature_type = ln.Feature.filter(uid=FEATURE_TYPE_UID).one_or_none()
+    feature_type = ln.Feature.filter(uid=FEATURE_ROOT_TYPE_UID).one_or_none()
     if feature_type is None:
         feature_type = ln.Feature.filter(
-            name=FEATURE_TYPE_NAME, is_type=True
+            name=FEATURE_ROOT_TYPE_NAME, is_type=True
         ).one_or_none()
     if feature_type is None:
-        feature_type = ln.Feature(name=FEATURE_TYPE_NAME, is_type=True)
-        feature_type.uid = FEATURE_TYPE_UID
+        feature_type = ln.Feature(name=FEATURE_ROOT_TYPE_NAME, is_type=True)
+        feature_type.uid = FEATURE_ROOT_TYPE_UID
+        feature_type.save()
+    return feature_type
+
+
+def _get_or_create_benchmark_feature_type() -> ln.Feature:
+    """`LaminProfiler/Benchmark`, the type for benchmarking measurement features."""
+    root = _get_or_create_feature_type()
+    feature_type = ln.Feature.filter(uid=FEATURE_BENCHMARKS_TYPE_UID).one_or_none()
+    if feature_type is None:
+        feature_type = ln.Feature.filter(
+            name=FEATURE_BENCHMARKS_TYPE_NAME, is_type=True, type=root
+        ).one_or_none()
+    if feature_type is None:
+        feature_type = ln.Feature(
+            name=FEATURE_BENCHMARKS_TYPE_NAME, is_type=True, type=root
+        )
+        feature_type.uid = FEATURE_BENCHMARKS_TYPE_UID
+        return feature_type.save()
+    if feature_type.type_id != root.id:
+        feature_type.type = root
         feature_type.save()
     return feature_type
 
@@ -81,8 +132,8 @@ def _get_or_create_feature(
     values_through: str | None = None,
     uid: str | None = None,
 ) -> ln.Feature:
-    if uid is None and name in FEATURE_UIDS:
-        uid = FEATURE_UIDS[name]
+    if uid is None:
+        uid = ROOT_FEATURE_UIDS.get(name, BENCHMARKING_FEATURE_UIDS.get(name))
     feature = _find_feature(name, uid, feature_type, dtype)
     if feature is None:
         kwargs = {"name": name, "dtype": dtype, "type": feature_type}
@@ -92,14 +143,84 @@ def _get_or_create_feature(
         if uid is not None and ln.Feature.filter(uid=uid).one_or_none() is None:
             feature.uid = uid
         return feature.save()
-    if feature.type_id != feature_type.id:
-        feature.type = feature_type
-        feature.save()
     return feature
 
 
 def _optional(feature: ln.Feature):
     return feature.with_config(optional=True)
+
+
+def _get_or_create_git_commits_feature_type() -> ln.Feature:
+    """`LaminProfiler/GitCommits`, the type for GitCommits features."""
+    root = _get_or_create_feature_type()
+    feature_type = ln.Feature.filter(uid=GIT_COMMITS_FEATURE_TYPE_UID).one_or_none()
+    if feature_type is None:
+        feature_type = ln.Feature.filter(
+            name=GIT_COMMITS_FEATURE_TYPE_NAME, is_type=True, type=root
+        ).one_or_none()
+    if feature_type is None:
+        feature_type = ln.Feature(
+            name=GIT_COMMITS_FEATURE_TYPE_NAME, is_type=True, type=root
+        )
+        feature_type.uid = GIT_COMMITS_FEATURE_TYPE_UID
+        feature_type.save()
+    return feature_type
+
+
+def ensure_git_commit_features() -> dict[str, ln.Feature]:
+    """Create GitCommits features that are not already registered."""
+    feature_type = _get_or_create_git_commits_feature_type()
+    commit_hash16 = commit_hash16_feature()
+    return {
+        "hash16": _get_or_create_feature(
+            "hash16",
+            str,
+            feature_type,
+            values_through="name",
+            uid=GIT_COMMITS_FEATURE_UIDS["hash16"],
+        ),
+        "coverage": _get_or_create_feature(
+            "coverage",
+            float,
+            feature_type,
+            uid=GIT_COMMITS_FEATURE_UIDS["coverage"],
+        ),
+        "created_at": _get_or_create_feature(
+            "created_at",
+            "datetime",
+            feature_type,
+            values_through="created_at",
+            uid=GIT_COMMITS_FEATURE_UIDS["created_at"],
+        ),
+        "coverage_xml": _get_or_create_feature(
+            "coverage_xml",
+            ln.Artifact,
+            feature_type,
+            values_through=commit_hash16,
+            uid=GIT_COMMITS_FEATURE_UIDS["coverage_xml"],
+        ),
+        "benchmarks": _get_or_create_feature(
+            "benchmarks",
+            list[ln.Artifact],
+            feature_type,
+            values_through=commit_hash16,
+            uid=GIT_COMMITS_FEATURE_UIDS["benchmarks"],
+        ),
+    }
+
+
+def product_feature() -> ln.Feature:
+    """The one `product` feature, shared by GitCommits and benchmark artifacts."""
+    return _get_or_create_feature(
+        "product", products_type(), _get_or_create_feature_type()
+    )
+
+
+def commit_hash16_feature() -> ln.Feature:
+    """The one `commit_hash16` feature, shared by GitCommits and benchmark artifacts."""
+    return _get_or_create_feature(
+        "commit_hash16", git_commits_type(), _get_or_create_feature_type()
+    )
 
 
 def products_type() -> ln.Record:
@@ -121,8 +242,44 @@ def require_product(name: str) -> ln.Record:
     return product
 
 
+def ensure_git_commits_schema(
+    feature: ln.Feature | None = None,
+) -> ln.Schema:
+    """GitCommits schema, including its features and the shared product feature."""
+    git_features = ensure_git_commit_features()
+    product = product_feature() if feature is None else feature
+    schema_type = _get_or_create_schema_type()
+    schema = ln.Schema.get(GIT_COMMITS_SCHEMA_UID)
+    type_changed = schema.type_id != schema_type.id
+    if type_changed:
+        schema.type = schema_type
+    member_uids = {member.uid for member in schema.features.all()}
+    # hash16 and product are required. The other schema features are optional.
+    # benchmarks is a GitCommits feature and is not a member of this schema.
+    missing_required = [
+        item
+        for item in (git_features["hash16"], product)
+        if item.uid not in member_uids
+    ]
+    missing_optional = [
+        git_features[name]
+        for name in ("coverage", "coverage_xml", "created_at")
+        if git_features[name].uid not in member_uids
+    ]
+    if missing_required:
+        # Schema.add(optional=False) is not implemented. Membership without an
+        # optionals entry is what makes the feature required.
+        schema.features.add(*missing_required)
+    if missing_optional:
+        schema.add(missing_optional, optional=True)
+    elif type_changed or missing_required:
+        schema.save(print_hash_mutation_warning=False)
+    return schema
+
+
 def ensure_git_commit(hash16: str, product: ln.Record | None = None) -> ln.Record:
     """Return the GitCommits record named with this hash, creating it if needed."""
+    ensure_git_commits_schema()
     git_commits = git_commits_type()
     record = ln.Record.filter(name=hash16, type=git_commits).one_or_none()
     if record is not None:
@@ -136,9 +293,7 @@ def ensure_git_commit(hash16: str, product: ln.Record | None = None) -> ln.Recor
 def _base_features(feature_type: ln.Feature) -> tuple[list, list]:
     package_version = _get_or_create_feature("package_version", str, feature_type)
     duration_in_sec = _get_or_create_feature("duration_in_sec", float, feature_type)
-    commit_hash16 = _get_or_create_feature(
-        "commit_hash16", git_commits_type(), feature_type, uid=COMMIT_HASH16_UID
-    )
+    commit_hash16 = commit_hash16_feature()
     runner_env = _get_or_create_feature("runner_env", str, feature_type)
     task_source_hash = _get_or_create_feature("task_source_hash", str, feature_type)
     python_version = _get_or_create_feature("python_version", str, feature_type)
@@ -159,43 +314,65 @@ def _base_features(feature_type: ln.Feature) -> tuple[list, list]:
     return required, optional
 
 
-def _sync_schema(name: str, required: list, optional: list) -> ln.Schema:
-    schema = ln.Schema.filter(name=name).one_or_none()
+def _sync_schema(name: str, required: list, optional: list, *, uid: str) -> ln.Schema:
+    schema_type = _get_or_create_schema_type()
+    schema = ln.Schema.filter(uid=uid).one_or_none()
     if schema is None:
-        return ln.Schema(
+        schema = ln.Schema.filter(name=name).one_or_none()
+    if schema is None:
+        schema = ln.Schema(
             features=[*required, *map(_optional, optional)],
             name=name,
-        ).save()
+            type=schema_type,
+        )
+        # Schema.__init__ assigns a random uid. Replace it before the first save.
+        schema.uid = uid
+        return schema.save()
+    changed = (
+        schema.uid != uid or schema.name != name or schema.type_id != schema_type.id
+    )
+    schema.uid = uid
+    schema.name = name
+    schema.type = schema_type
     existing = {feature.name for feature in schema.features.all()}
     missing_required = [feature for feature in required if feature.name not in existing]
     missing_optional = [feature for feature in optional if feature.name not in existing]
     if missing_required:
-        schema.add(missing_required, optional=False)
+        schema.features.add(*missing_required)
+        changed = True
     if missing_optional:
         schema.add(missing_optional, optional=True)
+        changed = False
+    elif changed:
+        schema.save(print_hash_mutation_warning=False)
     return schema
 
 
 def get_or_create_schema() -> ln.Schema:
-    feature_type = _get_or_create_feature_type()
+    feature_type = _get_or_create_benchmark_feature_type()
     required, optional = _base_features(feature_type)
-    return _sync_schema(LAMINPROFILER_SCHEMA_NAME, required, optional)
+    return _sync_schema(
+        BENCHMARKING_SCHEMA_RECORD_NAME,
+        required,
+        optional,
+        uid=BENCHMARKING_SCHEMA_RECORD_UID,
+    )
 
 
 def get_or_create_artifact_schema() -> ln.Schema:
     """Schema for one benchmark run: record features plus product, task, and benchmark."""
-    feature_type = _get_or_create_feature_type()
+    feature_type = _get_or_create_benchmark_feature_type()
     required, optional = _base_features(feature_type)
-    product = _get_or_create_feature(
-        "product", products_type(), feature_type, uid=PRODUCT_FEATURE_UID
-    )
+    product = product_feature()
+    ensure_git_commits_schema(product)
     task_name = _get_or_create_feature("task_name", str, feature_type, uid=None)
     task_uid = _get_or_create_feature("task_uid", str, feature_type, uid=None)
     benchmark = _get_or_create_feature("benchmark", dict, feature_type, uid=None)
     return _sync_schema(
-        LAMINPROFILER_ARTIFACT_SCHEMA_NAME,
+        BENCHMARKING_SCHEMA_ARTIFACT_NAME,
         [*required, product, task_name],
         [*optional, task_uid, benchmark],
+        uid=BENCHMARKING_SCHEMA_ARTIFACT_UID,
     )
 
 

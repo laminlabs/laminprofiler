@@ -28,8 +28,7 @@ from laminprofiler.output import (
     record_registry_requested,
 )
 from laminprofiler.setup import (
-    COMMIT_HASH16_UID,
-    PRODUCT_FEATURE_UID,
+    ROOT_FEATURE_UIDS,
     ensure_git_commit,
     get_or_create_artifact_schema,
     require_product,
@@ -186,12 +185,14 @@ def _save_coverage_record(coverage_xml: Path, product_name: str) -> None:
     )
     schema = get_or_create_artifact_schema()
     commit_hash16 = next(
-        feature for feature in schema.features.all() if feature.uid == COMMIT_HASH16_UID
+        feature
+        for feature in schema.features.all()
+        if feature.uid == ROOT_FEATURE_UIDS["commit_hash16"]
     )
     product_feature = next(
         feature
         for feature in schema.features.all()
-        if feature.uid == PRODUCT_FEATURE_UID
+        if feature.uid == ROOT_FEATURE_UIDS["product"]
     )
     ln.Artifact(
         coverage_xml,
