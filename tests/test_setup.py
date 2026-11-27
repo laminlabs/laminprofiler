@@ -71,6 +71,10 @@ class FakeRun:
     uid = "Run.uid"
 
 
+class FakeArtifact:
+    pass
+
+
 class _Features:
     def __init__(self, items):
         self._items = items
@@ -187,6 +191,7 @@ def _load_setup(monkeypatch):
         Schema=FakeSchema,
         Record=FakeRecord,
         Run=FakeRun,
+        Artifact=FakeArtifact,
     )
     monkeypatch.setitem(sys.modules, "lamindb", fake_ln)
     sys.modules.pop("laminprofiler.setup", None)
@@ -219,24 +224,29 @@ def test_setup_creates_registry_with_expected_schema(monkeypatch):
     assert schema.name == module.BENCHMARKING_SCHEMA_RECORD_NAME
     assert schema.uid == module.BENCHMARKING_SCHEMA_RECORD_UID
     features = {feature.name: feature for feature in schema.features.all()}
-    assert set(features) == set(module.BENCHMARKING_FEATURE_UIDS)
+    assert set(features) == set(module.BENCHMARKING_FEATURE_UIDS) | {"commit_hash16"}
     pinned = {name: features[name] for name in module.BENCHMARKING_FEATURE_UIDS}
     assert all(
         pinned[name].uid == uid
         for name, uid in module.BENCHMARKING_FEATURE_UIDS.items()
     )
-    assert all(feature.type.name == "Benchmark" for feature in features.values())
+    benchmark_features = [
+        feature for name, feature in features.items() if name != "commit_hash16"
+    ]
+    assert all(feature.type.name == "Benchmark" for feature in benchmark_features)
     assert all(
         feature.type.uid == module.FEATURE_BENCHMARK_TYPE_UID
-        for feature in features.values()
+        for feature in benchmark_features
     )
     assert all(
-        feature.type.type.name == "LaminProfiler" for feature in features.values()
+        feature.type.type.name == "LaminProfiler" for feature in benchmark_features
     )
     assert all(
         feature.type.type.uid == module.FEATURE_ROOT_TYPE_UID
-        for feature in features.values()
+        for feature in benchmark_features
     )
+    assert features["commit_hash16"].uid == module.ROOT_FEATURE_UIDS["commit_hash16"]
+    assert features["commit_hash16"].type.uid == module.FEATURE_ROOT_TYPE_UID
     assert all(feature.type.is_type for feature in features.values())
     assert features["created_at"].values_through == "created_at"
     assert features["created_at"].dtype == "datetime64[ns, UTC]"
@@ -269,7 +279,7 @@ def test_setup_adds_missing_optional_features(monkeypatch):
     assert schema.uid == module.BENCHMARKING_SCHEMA_RECORD_UID
     assert {feature.name for feature in schema.features.all()} == set(
         module.BENCHMARKING_FEATURE_UIDS
-    )
+    ) | {"commit_hash16"}
     assert package_version.type is None
     assert duration.type is None
     created_at = next(
@@ -342,7 +352,40 @@ def test_commit_hash16_is_not_the_legacy_string_feature(monkeypatch):
     )
     assert commit is not legacy
     assert commit.dtype.name == "GitCommits"
-    assert commit.uid == module.BENCHMARKING_FEATURE_UIDS["commit_hash16"]
+    assert commit.uid == module.ROOT_FEATURE_UIDS["commit_hash16"]
+    assert commit.type.uid == module.FEATURE_ROOT_TYPE_UID
+
+
+def test_git_commit_features_are_created(monkeypatch):
+    module = _load_setup(monkeypatch)
+    schema = module.ensure_git_commits_schema()
+    features = {feature.name: feature for feature in schema.features.all()}
+    hash16 = features["hash16"]
+    assert hash16.uid == module.GIT_COMMITS_FEATURE_UIDS["hash16"]
+    assert hash16.dtype is str
+    assert hash16.values_through == "name"
+    assert hash16.type.uid == module.GIT_COMMITS_FEATURE_TYPE_UID
+    assert hash16.type.type.uid == module.FEATURE_ROOT_TYPE_UID
+    assert features["coverage"].uid == module.GIT_COMMITS_FEATURE_UIDS["coverage"]
+    assert features["coverage"].dtype is float
+    created_at = features["created_at"]
+    assert created_at.uid == module.GIT_COMMITS_FEATURE_UIDS["created_at"]
+    assert created_at.dtype == "datetime"
+    assert created_at.values_through == "created_at"
+    coverage_xml = features["coverage_xml"]
+    assert coverage_xml.uid == module.GIT_COMMITS_FEATURE_UIDS["coverage_xml"]
+    assert coverage_xml.dtype is FakeArtifact
+    assert coverage_xml.values_through.uid == module.ROOT_FEATURE_UIDS["commit_hash16"]
+    assert coverage_xml.values_through.type.uid == module.FEATURE_ROOT_TYPE_UID
+    assert features["product"].uid == module.ROOT_FEATURE_UIDS["product"]
+    assert features["product"].type.uid == module.FEATURE_ROOT_TYPE_UID
+    benchmarks = FakeFeature.filter(
+        uid=module.GIT_COMMITS_FEATURE_UIDS["benchmarks"]
+    ).one_or_none()
+    assert benchmarks is not None
+    assert benchmarks.dtype == list[FakeArtifact]
+    assert benchmarks.values_through.uid == module.ROOT_FEATURE_UIDS["commit_hash16"]
+    assert "benchmarks" not in features
 
 
 def test_artifact_schema_adds_product_task_and_benchmark(monkeypatch):
@@ -352,8 +395,9 @@ def test_artifact_schema_adds_product_task_and_benchmark(monkeypatch):
     assert schema.name == module.BENCHMARKING_SCHEMA_ARTIFACT_NAME
     assert schema.uid == module.BENCHMARKING_SCHEMA_ARTIFACT_UID
     assert features["product"].dtype.uid == "tY22ouWHsJKDJaXL"
-    assert features["product"].uid == module.PRODUCT_FEATURE_UID
+    assert features["product"].uid == module.ROOT_FEATURE_UIDS["product"]
     assert features["product"].type.uid == module.FEATURE_ROOT_TYPE_UID
+    assert features["commit_hash16"].type.uid == module.FEATURE_ROOT_TYPE_UID
     assert features["task_name"].type.uid == module.FEATURE_BENCHMARK_TYPE_UID
     git_commits = FakeSchema.get(module.GIT_COMMITS_SCHEMA_UID)
     git_product = next(
@@ -364,7 +408,4 @@ def test_artifact_schema_adds_product_task_and_benchmark(monkeypatch):
     assert features["task_uid"].dtype is str
     assert features["benchmark"].dtype is dict
     assert features["commit_hash16"].dtype.name == "GitCommits"
-    assert (
-        features["commit_hash16"].uid
-        == module.BENCHMARKING_FEATURE_UIDS["commit_hash16"]
-    )
+    assert features["commit_hash16"].uid == module.ROOT_FEATURE_UIDS["commit_hash16"]

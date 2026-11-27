@@ -6,10 +6,23 @@ BENCHMARKING_SCHEMA_RECORD_NAME = "laminprofiler-benchmarks-record"
 BENCHMARKING_SCHEMA_RECORD_UID = "QlP3YCAkqOaJ1vHa"
 FEATURE_ROOT_TYPE_NAME = "LaminProfiler"
 FEATURE_ROOT_TYPE_UID = "uBBUYLh5VFbo"
+ROOT_FEATURE_UIDS = {
+    "product": "nc9f3tG4LUoF",
+    "commit_hash16": "tViF46horYOI",
+}
 FEATURE_BENCHMARK_TYPE_NAME = "Benchmark"
 FEATURE_BENCHMARK_TYPE_UID = "6azc9bL9cDr8"
 PRODUCTS_TYPE_UID = "tY22ouWHsJKDJaXL"
 GIT_COMMITS_SCHEMA_UID = "LLgPZodc1iazGcVv"
+GIT_COMMITS_FEATURE_TYPE_NAME = "GitCommits"
+GIT_COMMITS_FEATURE_TYPE_UID = "xtViAXH9Dc5j"
+GIT_COMMITS_FEATURE_UIDS = {
+    "hash16": "FN9b8rciIUuG",
+    "coverage": "uJfnb8JLsgnZ",
+    "created_at": "RlauhnuzKHGs",
+    "coverage_xml": "fvm3IcD1pqNw",
+    "benchmarks": "LYDfg089ObnS",
+}
 BENCHMARKING_FEATURE_UIDS = {
     "package_version": "3jrklzyM82cU",
     "duration_in_sec": "QsC24kltUffN",
@@ -18,9 +31,7 @@ BENCHMARKING_FEATURE_UIDS = {
     "python_version": "DbXIpju3hjt0",
     "created_at": "nXiW5L1obr3u",
     "run": "z4SI35hBSvVw",
-    "commit_hash16": "tViF46horYOI",
 }
-PRODUCT_FEATURE_UID = "nc9f3tG4LUoF"
 
 
 def _get_or_create_feature_type() -> ln.Feature:
@@ -104,8 +115,8 @@ def _get_or_create_feature(
     values_through: str | None = None,
     uid: str | None = None,
 ) -> ln.Feature:
-    if uid is None and name in BENCHMARKING_FEATURE_UIDS:
-        uid = BENCHMARKING_FEATURE_UIDS[name]
+    if uid is None:
+        uid = ROOT_FEATURE_UIDS.get(name, BENCHMARKING_FEATURE_UIDS.get(name))
     feature = _find_feature(name, uid, feature_type, dtype)
     if feature is None:
         kwargs = {"name": name, "dtype": dtype, "type": feature_type}
@@ -122,13 +133,76 @@ def _optional(feature: ln.Feature):
     return feature.with_config(optional=True)
 
 
+def _get_or_create_git_commits_feature_type() -> ln.Feature:
+    """`LaminProfiler/GitCommits`, the type for GitCommits features."""
+    root = _get_or_create_feature_type()
+    feature_type = ln.Feature.filter(uid=GIT_COMMITS_FEATURE_TYPE_UID).one_or_none()
+    if feature_type is None:
+        feature_type = ln.Feature.filter(
+            name=GIT_COMMITS_FEATURE_TYPE_NAME, is_type=True, type=root
+        ).one_or_none()
+    if feature_type is None:
+        feature_type = ln.Feature(
+            name=GIT_COMMITS_FEATURE_TYPE_NAME, is_type=True, type=root
+        )
+        feature_type.uid = GIT_COMMITS_FEATURE_TYPE_UID
+        feature_type.save()
+    return feature_type
+
+
+def ensure_git_commit_features() -> dict[str, ln.Feature]:
+    """Create GitCommits features that are not already registered."""
+    feature_type = _get_or_create_git_commits_feature_type()
+    commit_hash16 = commit_hash16_feature()
+    return {
+        "hash16": _get_or_create_feature(
+            "hash16",
+            str,
+            feature_type,
+            values_through="name",
+            uid=GIT_COMMITS_FEATURE_UIDS["hash16"],
+        ),
+        "coverage": _get_or_create_feature(
+            "coverage",
+            float,
+            feature_type,
+            uid=GIT_COMMITS_FEATURE_UIDS["coverage"],
+        ),
+        "created_at": _get_or_create_feature(
+            "created_at",
+            "datetime",
+            feature_type,
+            values_through="created_at",
+            uid=GIT_COMMITS_FEATURE_UIDS["created_at"],
+        ),
+        "coverage_xml": _get_or_create_feature(
+            "coverage_xml",
+            ln.Artifact,
+            feature_type,
+            values_through=commit_hash16,
+            uid=GIT_COMMITS_FEATURE_UIDS["coverage_xml"],
+        ),
+        "benchmarks": _get_or_create_feature(
+            "benchmarks",
+            list[ln.Artifact],
+            feature_type,
+            values_through=commit_hash16,
+            uid=GIT_COMMITS_FEATURE_UIDS["benchmarks"],
+        ),
+    }
+
+
 def product_feature() -> ln.Feature:
     """The one `product` feature, shared by GitCommits and benchmark artifacts."""
     return _get_or_create_feature(
-        "product",
-        products_type(),
-        _get_or_create_feature_type(),
-        uid=PRODUCT_FEATURE_UID,
+        "product", products_type(), _get_or_create_feature_type()
+    )
+
+
+def commit_hash16_feature() -> ln.Feature:
+    """The one `commit_hash16` feature, shared by GitCommits and benchmark artifacts."""
+    return _get_or_create_feature(
+        "commit_hash16", git_commits_type(), _get_or_create_feature_type()
     )
 
 
@@ -154,15 +228,30 @@ def require_product(name: str) -> ln.Record:
 def ensure_git_commits_schema(
     feature: ln.Feature | None = None,
 ) -> ln.Schema:
-    """GitCommits schema, including the shared product feature."""
+    """GitCommits schema, including its features and the shared product feature."""
+    git_features = ensure_git_commit_features()
+    product = product_feature() if feature is None else feature
     schema = ln.Schema.get(GIT_COMMITS_SCHEMA_UID)
-    feature = product_feature() if feature is None else feature
-    if any(member.uid == feature.uid for member in schema.features.all()):
-        return schema
-    # Schema.add(optional=False) is not implemented. Membership without an
-    # optionals entry is what makes the feature required.
-    schema.features.add(feature)
-    schema.save(print_hash_mutation_warning=False)
+    member_uids = {member.uid for member in schema.features.all()}
+    # hash16 and product are required. The other schema features are optional.
+    # benchmarks is a GitCommits feature and is not a member of this schema.
+    missing_required = [
+        item
+        for item in (git_features["hash16"], product)
+        if item.uid not in member_uids
+    ]
+    missing_optional = [
+        git_features[name]
+        for name in ("coverage", "coverage_xml", "created_at")
+        if git_features[name].uid not in member_uids
+    ]
+    if missing_required:
+        # Schema.add(optional=False) is not implemented. Membership without an
+        # optionals entry is what makes the feature required.
+        schema.features.add(*missing_required)
+        schema.save(print_hash_mutation_warning=False)
+    if missing_optional:
+        schema.add(missing_optional, optional=True)
     return schema
 
 
@@ -182,9 +271,7 @@ def ensure_git_commit(hash16: str, product: ln.Record | None = None) -> ln.Recor
 def _base_features(feature_type: ln.Feature) -> tuple[list, list]:
     package_version = _get_or_create_feature("package_version", str, feature_type)
     duration_in_sec = _get_or_create_feature("duration_in_sec", float, feature_type)
-    commit_hash16 = _get_or_create_feature(
-        "commit_hash16", git_commits_type(), feature_type
-    )
+    commit_hash16 = commit_hash16_feature()
     runner_env = _get_or_create_feature("runner_env", str, feature_type)
     task_source_hash = _get_or_create_feature("task_source_hash", str, feature_type)
     python_version = _get_or_create_feature("python_version", str, feature_type)
