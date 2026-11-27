@@ -122,12 +122,13 @@ def _optional(feature: ln.Feature):
     return feature.with_config(optional=True)
 
 
-def product_feature(feature_type: ln.Feature | None = None) -> ln.Feature:
+def product_feature() -> ln.Feature:
     """The one `product` feature, shared by GitCommits and benchmark artifacts."""
-    if feature_type is None:
-        feature_type = _get_or_create_benchmark_feature_type()
     return _get_or_create_feature(
-        "product", products_type(), feature_type, uid=PRODUCT_FEATURE_UID
+        "product",
+        products_type(),
+        _get_or_create_feature_type(),
+        uid=PRODUCT_FEATURE_UID,
     )
 
 
@@ -248,7 +249,7 @@ def get_or_create_artifact_schema() -> ln.Schema:
     """Schema for one benchmark run: record features plus product, task, and benchmark."""
     feature_type = _get_or_create_benchmark_feature_type()
     required, optional = _base_features(feature_type)
-    product = product_feature(feature_type)
+    product = product_feature()
     ensure_git_commits_schema(product)
     task_name = _get_or_create_feature("task_name", str, feature_type, uid=None)
     task_uid = _get_or_create_feature("task_uid", str, feature_type, uid=None)

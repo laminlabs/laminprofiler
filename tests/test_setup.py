@@ -353,7 +353,7 @@ def test_artifact_schema_adds_product_task_and_benchmark(monkeypatch):
     assert schema.uid == module.BENCHMARKING_SCHEMA_ARTIFACT_UID
     assert features["product"].dtype.uid == "tY22ouWHsJKDJaXL"
     assert features["product"].uid == module.PRODUCT_FEATURE_UID
-    assert features["product"].type.uid == module.FEATURE_BENCHMARK_TYPE_UID
+    assert features["product"].type.uid == module.FEATURE_ROOT_TYPE_UID
     assert features["task_name"].type.uid == module.FEATURE_BENCHMARK_TYPE_UID
     git_commits = FakeSchema.get(module.GIT_COMMITS_SCHEMA_UID)
     git_product = next(
