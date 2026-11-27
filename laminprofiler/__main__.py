@@ -75,11 +75,11 @@ def _report_result(result, override: float | None) -> None:
     print(f"\n# {result.name}\n{result.source}\n")
     print("pyinstrument profile (not included in the median)")
     print(result.profile_text)
-    limit = override if override is not None else result.total_seconds
+    limit = override if override is not None else result.fail_seconds
     if limit is None:
         print(f"{result.name}: {result.duration:.3f}s")
     else:
-        print(f"{result.name}: {result.duration:.3f}s (total_seconds {limit:g})")
+        print(f"{result.name}: {result.duration:.3f}s (fail_seconds {limit:g})")
 
 
 def _scripts_by_package(results) -> dict[str, list]:
@@ -232,8 +232,8 @@ def main():
     default=None,
     type=float,
     help="Max allowed duration in seconds for every task in this run. "
-    "Overrides total_seconds on @laminprofiler. "
-    "Omit it to use each task's total_seconds.",
+    "Overrides fail_seconds on @laminprofiler. "
+    "Omit it to use each task's fail_seconds.",
 )
 def benchmark_command(
     paths: tuple[str, ...], threshold: float | None, output_format: str
@@ -304,7 +304,7 @@ def benchmark(
             f"{result.name}: {result.duration:.3f}s > {limit:.3f}s"
             for result, limit in too_slow
         )
-        raise click.ClickException(f"Profiling time exceeds total_seconds\n{details}")
+        raise click.ClickException(f"Profiling time exceeds fail_seconds\n{details}")
 
 
 @main.command("coverage")

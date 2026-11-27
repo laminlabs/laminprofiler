@@ -29,7 +29,7 @@ class TaskResult:
     python_version: str
     path: str
     uid: str | None = None
-    total_seconds: float | None = None
+    fail_seconds: float | None = None
 
 
 def source_hash(source: str) -> str:
@@ -64,8 +64,8 @@ def function_uid(script: Path, name: str) -> str | None:
     return _mark(script, name)[0]
 
 
-def function_total_seconds(script: Path, name: str) -> float | None:
-    """Duration cap from an optional `@laminprofiler(..., total_seconds=...)` decorator."""
+def function_fail_seconds(script: Path, name: str) -> float | None:
+    """Duration cap from an optional `@laminprofiler(..., fail_seconds=...)` decorator."""
     return _mark(script, name)[1]
 
 
@@ -98,9 +98,9 @@ def _mark_from_decorators(
                 and arg.value
             ):
                 uid = arg.value
-        total_seconds = None
+        fail_seconds = None
         for keyword in decorator.keywords:
-            if keyword.arg != "total_seconds" or not isinstance(
+            if keyword.arg != "fail_seconds" or not isinstance(
                 keyword.value, ast.Constant
             ):
                 continue
@@ -108,18 +108,18 @@ def _mark_from_decorators(
             if isinstance(value, bool) or not isinstance(value, int | float):
                 continue
             if value > 0:
-                total_seconds = float(value)
-        return uid, total_seconds
+                fail_seconds = float(value)
+        return uid, fail_seconds
     return None, None
 
 
 def tasks_over_budget(
     results: list[TaskResult], override: float | None
 ) -> list[tuple[TaskResult, float]]:
-    """Tasks slower than `total_seconds`, or slower than one command-wide override."""
+    """Tasks slower than `fail_seconds`, or slower than one command-wide override."""
     over: list[tuple[TaskResult, float]] = []
     for result in results:
-        limit = override if override is not None else result.total_seconds
+        limit = override if override is not None else result.fail_seconds
         if limit is not None and result.duration > limit:
             over.append((result, limit))
     return over
@@ -294,7 +294,7 @@ def _run_pytest(scripts: list[Path], *, keyword: str | None) -> list[TaskResult]
             )
             func_name = name.split("[", 1)[0]
             source = function_source(script, func_name)
-            uid, total_seconds = _mark(script, func_name)
+            uid, fail_seconds = _mark(script, func_name)
             results.append(
                 TaskResult(
                     name=task_name(name),
@@ -306,7 +306,7 @@ def _run_pytest(scripts: list[Path], *, keyword: str | None) -> list[TaskResult]
                     python_version=python_version,
                     path=str(script),
                     uid=uid,
-                    total_seconds=total_seconds,
+                    fail_seconds=fail_seconds,
                 )
             )
         if not results:
@@ -339,7 +339,7 @@ def _run_import_benchmark(script: Path, name: str) -> TaskResult:
         sys.stderr.write(profile.stderr)
         raise subprocess.CalledProcessError(profile.returncode, profile.args)
     source = function_source(script, name)
-    uid, total_seconds = _mark(script, name)
+    uid, fail_seconds = _mark(script, name)
     rounds = {
         "warmup_rounds": IMPORT_WARMUP_ROUNDS,
         "rounds": measured,
@@ -355,7 +355,7 @@ def _run_import_benchmark(script: Path, name: str) -> TaskResult:
         python_version=_python_version(),
         path=str(script),
         uid=uid,
-        total_seconds=total_seconds,
+        fail_seconds=fail_seconds,
     )
 
 

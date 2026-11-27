@@ -6,7 +6,7 @@ from laminprofiler.bench import (
     IMPORT_ROUNDS,
     IMPORT_WARMUP_ROUNDS,
     TaskResult,
-    function_total_seconds,
+    function_fail_seconds,
     function_uid,
     package_name_from_path,
     profile_function_names,
@@ -35,11 +35,11 @@ def test_laminprofiler_mark_is_optional(tmp_path: Path):
     script.write_text(
         "from laminprofiler import laminprofiler\n"
         "\n"
-        "@laminprofiler('k5F8p2Q1nX9a', total_seconds=2)\n"
+        "@laminprofiler('k5F8p2Q1nX9a', fail_seconds=2)\n"
         "def profile_curate_simple_dataframe():\n"
         "    return 1\n"
         "\n"
-        "@laminprofiler(total_seconds=1.5)\n"
+        "@laminprofiler(fail_seconds=1.5)\n"
         "def profile_import_lamindb():\n"
         "    return 2\n"
         "\n"
@@ -47,32 +47,32 @@ def test_laminprofiler_mark_is_optional(tmp_path: Path):
         "    return 3\n"
     )
     assert function_uid(script, "profile_curate_simple_dataframe") == "k5F8p2Q1nX9a"
-    assert function_total_seconds(script, "profile_curate_simple_dataframe") == 2
+    assert function_fail_seconds(script, "profile_curate_simple_dataframe") == 2
     assert function_uid(script, "profile_import_lamindb") is None
-    assert function_total_seconds(script, "profile_import_lamindb") == 1.5
+    assert function_fail_seconds(script, "profile_import_lamindb") == 1.5
     assert function_uid(script, "profile_other") is None
-    assert function_total_seconds(script, "profile_other") is None
+    assert function_fail_seconds(script, "profile_other") is None
 
-    @laminprofiler("k5F8p2Q1nX9a", total_seconds=2)
+    @laminprofiler("k5F8p2Q1nX9a", fail_seconds=2)
     def profile_curate_simple_dataframe():
         return 1
 
     assert profile_curate_simple_dataframe() == 1
     marked = profile_curate_simple_dataframe
     assert marked.__laminprofiler_uid__ == "k5F8p2Q1nX9a"  # type: ignore[attr-defined]
-    assert marked.__laminprofiler_total_seconds__ == 2  # type: ignore[attr-defined]
+    assert marked.__laminprofiler_fail_seconds__ == 2  # type: ignore[attr-defined]
 
 
-def test_laminprofiler_mark_requires_a_uid_or_total_seconds():
+def test_laminprofiler_mark_requires_a_uid_or_fail_seconds():
     with pytest.raises(ValueError, match="uid"):
         laminprofiler()
     with pytest.raises(ValueError, match="uid"):
         laminprofiler("")
-    with pytest.raises(ValueError, match="total_seconds"):
-        laminprofiler("k5F8p2Q1nX9a", total_seconds=0)
+    with pytest.raises(ValueError, match="fail_seconds"):
+        laminprofiler("k5F8p2Q1nX9a", fail_seconds=0)
 
 
-def test_tasks_over_budget_uses_total_seconds_unless_overridden():
+def test_tasks_over_budget_uses_fail_seconds_unless_overridden():
     capped = TaskResult(
         name="import_lamindb",
         source="",
@@ -82,7 +82,7 @@ def test_tasks_over_budget_uses_total_seconds_unless_overridden():
         source_hash="",
         python_version="3.12.0",
         path="import_lamindb.py",
-        total_seconds=1.5,
+        fail_seconds=1.5,
     )
     open_ended = TaskResult(
         name="describe_a_record",
