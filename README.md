@@ -4,15 +4,20 @@ Public documentation to come soon. For now, see [this internal Slack thread](htt
 
 Records are written to `laminlabs/lamindb-benchmarks` on a local run and on a GitHub `push`. Pull requests still enforce `--threshold`.
 
-## Set up record types
+## Run
 
-`laminprofiler check` creates any missing task types. `laminprofiler setup` registers every task under `tests/profiling/` in one step.
+Pass a directory to run every profiling file in it, or a file to run that one:
 
 ```bash
-laminprofiler setup
+laminprofiler profiling_tests
+laminprofiler profiling_tests/my_script.py --threshold 1.5
 ```
 
-When run from a package repository root, this command:
+A directory runs each Python file placed directly in it, and skips `conftest.py` plus helper files whose names start with `_`. One `--threshold` applies to every task in that run.
+
+## Record types
+
+When a run writes records, laminprofiler:
 
 - creates the `laminprofiler` schema with features:
   - `package_version`
@@ -48,7 +53,7 @@ def profile_curate_simple_dataframe(benchmark, mini_immuno):
 ```
 
 ```bash
-laminprofiler check tests/profiling/curate.py --threshold 2
+laminprofiler tests/profiling/curate.py --threshold 2
 ```
 
 ## Script profiles
@@ -56,12 +61,13 @@ laminprofiler check tests/profiling/curate.py --threshold 2
 A `tests/profiling/*.py` file with no `profile_*` function is timed as a whole process with pyinstrument. Use this for import and cold-start tasks. `--repeats` greater than 1 drops the first run as warmup.
 
 ```bash
-laminprofiler check tests/profiling/import_lamindb.py --threshold 1.5
+laminprofiler tests/profiling
+laminprofiler tests/profiling/import_lamindb.py --threshold 1.5
 ```
 
 ## Optional `cleanup()` hook for profiling scripts
 
-If a profiling script defines a top-level `cleanup()` function, `laminprofiler` calls it after each script run (`run` and `check`). This is useful for deleting benchmark artifacts between repeats.
+If a profiling script defines a top-level `cleanup()` function, `laminprofiler` calls it after each script run. This is useful for deleting benchmark artifacts between repeats.
 
 Use the script pattern below so importing the script does not run the benchmark body:
 

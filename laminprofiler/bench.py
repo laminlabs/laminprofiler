@@ -62,6 +62,40 @@ def registry_names(script: Path) -> list[str]:
     return [script.stem]
 
 
+def profiling_scripts(path: Path) -> list[Path]:
+    """One Python script, or each script placed directly in a directory.
+
+    Directory runs skip `conftest.py` and helper modules whose names start with `_`.
+    """
+    path = Path(path)
+    if path.is_file():
+        if path.suffix != ".py":
+            raise ValueError(f"{path} is not a Python file")
+        return [path.resolve()]
+    if not path.is_dir():
+        raise ValueError(f"{path} is not a file or directory")
+    return [
+        script.resolve()
+        for script in sorted(path.glob("*.py"))
+        if script.is_file()
+        and not script.name.startswith("_")
+        and script.name != "conftest.py"
+    ]
+
+
+def package_name_from_path(path: Path, *, cwd: Path | None = None) -> str:
+    """Import name of the package that owns a profiling script or directory."""
+    path = path.resolve()
+    anchor = path.parent if path.is_file() else path
+    if anchor.name == "profiling" and anchor.parent.name == "tests":
+        return anchor.parent.parent.name.replace("-", "_")
+    for parent in (anchor, *anchor.parents):
+        if (parent / "pyproject.toml").is_file() or (parent / "setup.py").is_file():
+            return parent.name.replace("-", "_")
+    root = Path.cwd() if cwd is None else cwd
+    return root.name.replace("-", "_")
+
+
 def run_function_benchmarks(script: Path) -> list[TaskResult]:
     """Time `profile_*` functions with pytest-benchmark, then profile each once.
 

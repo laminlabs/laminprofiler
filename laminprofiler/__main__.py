@@ -13,11 +13,13 @@ import lamindb as ln
 
 from laminprofiler.bench import (
     TaskResult,
+    package_name_from_path,
     profile_function_names,
-    registry_names,
+    profiling_scripts,
     run_function_benchmarks,
     source_hash,
 )
+from laminprofiler.cli import LaminProfilerGroup
 from laminprofiler.setup import setup
 
 GITHUB_EVENT_NAME = os.getenv("GITHUB_EVENT_NAME")
@@ -25,9 +27,9 @@ SHOULD_WRITE_RECORDS = GITHUB_EVENT_NAME is None or GITHUB_EVENT_NAME == "push"
 ln.connect("laminlabs/lamindb-benchmarks")
 
 
-@click.group()
+@click.group(cls=LaminProfilerGroup, no_args_is_help=True)
 def main():
-    """LaminProfiler."""
+    """Run profiling scripts."""
 
 
 def load_cleanup_hook(script: Path):
@@ -42,7 +44,9 @@ def load_cleanup_hook(script: Path):
     return cleanup if callable(cleanup) else None
 
 
-def run_profiler(script: Path, repeats: int) -> None:
+def run_profiler(
+    script: Path, repeats: int, *, profile_prefix: str = "profile"
+) -> None:
     """Run script with pyinstrument; profile0 warmup, remaining runs for averaging."""
     script_str = str(script.resolve())
     is_darwin = platform.system() == "Darwin"
@@ -51,7 +55,7 @@ def run_profiler(script: Path, repeats: int) -> None:
         print("WARNING: --repeats=1 disables cache warming; timing may be noisier.")
     for i in range(repeats):
         print(f"running script {i}...")
-        out = Path(f"profile{i}.txt")
+        out = Path(f"{profile_prefix}{i}.txt")
         try:
             if is_darwin:
                 subprocess.run(
@@ -97,41 +101,51 @@ def current_python_version() -> str:
     return platform.python_version()
 
 
-def parse_registry_names_from_script(script: Path) -> tuple[str, str]:
-    script = script.resolve()
-    assert script.parent.name == "profiling"
-    assert script.parent.parent.name == "tests"
-    package_name = script.parent.parent.parent.name.replace("-", "_")
-    script_basename = script.stem
-    return package_name, script_basename
+def collect_scripts(paths: tuple[Path, ...]) -> list[Path]:
+    """Expand file and directory targets into profiling scripts."""
+    if not paths:
+        raise click.ClickException(
+            "Pass a profiling script or a directory of profiling scripts."
+        )
+    scripts: list[Path] = []
+    seen: set[Path] = set()
+    for path in paths:
+        try:
+            found = profiling_scripts(path)
+        except ValueError as error:
+            raise click.ClickException(str(error)) from error
+        if not found:
+            raise click.ClickException(f"No profiling scripts found in {path}")
+        for script in found:
+            if script in seen:
+                continue
+            seen.add(script)
+            scripts.append(script)
+    return scripts
 
 
-@main.command("setup")
-@click.argument(
-    "script",
-    required=False,
-    type=click.Path(path_type=Path, exists=True),
-)
-def setup_command(script: Path | None) -> None:
-    """Set up lamindb registry and schema for laminprofiler."""
-    if script is not None:
-        package_name, _script_basename = parse_registry_names_from_script(script)
-        setup(package_name=package_name, task_names=registry_names(script))
-        return
+def _display_path(path: Path) -> Path:
+    resolved = path.resolve()
+    try:
+        return resolved.relative_to(Path.cwd())
+    except ValueError:
+        return resolved
 
-    package_name = Path.cwd().name.replace("-", "_")
-    profiling_dir = Path.cwd() / "tests" / "profiling"
-    task_names: list[str] = []
-    for path in sorted(profiling_dir.glob("*.py")):
-        if path.is_file() and not path.name.startswith("_"):
-            task_names.extend(registry_names(path))
-    setup(package_name=package_name, task_names=task_names)
+
+def _profile_prefix(script: Path, scripts: list[Path]) -> str:
+    """Keep `profile0.txt` for one script. Give each file its own prefix."""
+    if len(scripts) == 1:
+        return "profile"
+    return f"{script.stem}-profile"
 
 
 @main.command("run")
 @click.argument(
-    "script",
-    type=click.Path(path_type=Path, exists=True),
+    "paths",
+    nargs=-1,
+    required=True,
+    metavar="PATH...",
+    type=click.Path(exists=True, path_type=Path),
 )
 @click.option(
     "--repeats",
@@ -140,9 +154,19 @@ def setup_command(script: Path | None) -> None:
     show_default=True,
     help="Number of profiling runs for a script. With repeats > 1, first run is warmup.",
 )
-def run(script: Path, repeats: int) -> None:
-    """Run script with pyinstrument; profile0 warmup if repeats > 1."""
-    run_profiler(script, repeats)
+def run(paths: tuple[Path, ...], repeats: int) -> None:
+    """Profile scripts with pyinstrument.
+
+    PATH is a script or a directory. A directory profiles each Python file
+    placed directly in it. One script writes profile0.txt. Each script in a
+    directory writes <name>-profile0.txt. With repeats > 1, the first run of
+    each script is warmup.
+    """
+    scripts = collect_scripts(paths)
+    for script in scripts:
+        if len(scripts) > 1:
+            print(f"# {_display_path(script)}")
+        run_profiler(script, repeats, profile_prefix=_profile_prefix(script, scripts))
 
 
 def _duration_from_profile(text: str) -> float:
@@ -227,16 +251,39 @@ def record_benchmark(task: str, source: str, script: str) -> None:
             ).save()
 
 
-@main.command("check")
+def _measure(script: Path, *, no_run: bool, repeats: int) -> list[TaskResult]:
+    if profile_function_names(script):
+        if no_run:
+            raise click.ClickException(
+                "--no-run applies to script profiles. "
+                "Function benchmarks always run pytest-benchmark."
+            )
+        return run_function_benchmarks(script)
+    return [_run_script_task(script, script.stem, no_run, repeats)]
+
+
+def _report_result(result: TaskResult) -> None:
+    print(f"\n# {result.name}\n{result.source}\n")
+    if result.benchmark_json is not None:
+        print("pyinstrument profile (not included in the median)")
+    print(result.profile_text)
+    print(f"{result.name}: {result.duration:.3f}s")
+
+
+@main.command("profile", hidden=True)
 @click.argument(
-    "script",
+    "paths",
+    nargs=-1,
+    required=True,
+    metavar="PATH...",
     type=click.Path(exists=True),
 )
 @click.option(
     "--threshold",
     default=None,
     type=float,
-    help="Max allowed duration in seconds; exit 1 if exceeded. Omit to skip check.",
+    help="Max allowed duration in seconds. Exit 1 when a task exceeds it. "
+    "Omit it to record the duration with no limit.",
 )
 @click.option(
     "--no-run",
@@ -253,46 +300,64 @@ def record_benchmark(task: str, source: str, script: str) -> None:
     "Function benchmarks take their rounds from benchmark.pedantic.",
 )
 @ln.flow("BVQ42qdoymVS")
-def check(script: str, threshold: float | None, no_run: bool, repeats: int) -> None:
-    script_path = Path(script)
-    package_name, script_basename = parse_registry_names_from_script(script_path)
-    is_function_mode = bool(profile_function_names(script_path))
+def profile(
+    paths: tuple[str, ...], threshold: float | None, no_run: bool, repeats: int
+) -> None:
+    """Run profiling scripts.
 
-    if is_function_mode:
-        if no_run:
-            raise click.ClickException(
-                "--no-run applies to script profiles. "
-                "Function benchmarks always run pytest-benchmark."
-            )
+    laminprofiler profiling_tests
+
+    laminprofiler profiling_tests/my_script.py
+
+    A directory runs each Python file placed directly in it, and skips
+    conftest.py plus names that start with an underscore. A file runs that
+    script. The run creates any missing LaminProfiler features and task types.
+
+    laminprofiler run PATH writes pyinstrument files in the working directory.
+    """
+    scripts = collect_scripts(tuple(Path(path) for path in paths))
+    if no_run and len(scripts) > 1:
+        raise click.ClickException("Pass one script to --no-run.")
+    if any(profile_function_names(script) for script in scripts):
         print(
             "Function benchmarks use benchmark.pedantic for the median. "
             "--repeats applies to scripts."
         )
-        results = run_function_benchmarks(script_path)
-    else:
-        results = [_run_script_task(script_path, script_basename, no_run, repeats)]
+    if len(scripts) > 1:
+        print(f"Running {len(scripts)} profiling scripts")
 
-    module = importlib.import_module(package_name, package=".")
-    version = module.__version__
-    commit = current_commit_hash16()
-    runner = current_runner_env()
-    if SHOULD_WRITE_RECORDS:
-        setup(
-            package_name=package_name,
-            task_names=[result.name for result in results],
-            verbose=False,
-        )
-    for result in results:
-        print(f"\n# {result.name}\n{result.source}\n")
-        if result.benchmark_json is not None:
-            print("pyinstrument profile (not included in the median)")
-        print(result.profile_text)
-        print(f"{result.name}: {result.duration:.3f}s")
-        if SHOULD_WRITE_RECORDS:
-            _RESULTS[result.name] = (result, package_name, version, commit, runner)
-            record_benchmark(
-                task=result.name, source=result.source, script=str(script_path)
-            )
+    results: list[TaskResult] = []
+    for package_name, package_scripts in _scripts_by_package(scripts).items():
+        module = importlib.import_module(package_name, package=".")
+        version = module.__version__
+        commit = current_commit_hash16()
+        runner = current_runner_env()
+        for script in package_scripts:
+            if len(scripts) > 1:
+                print(f"\n# {_display_path(script)}")
+            script_results = _measure(script, no_run=no_run, repeats=repeats)
+            if SHOULD_WRITE_RECORDS:
+                setup(
+                    package_name=package_name,
+                    task_names=[result.name for result in script_results],
+                    verbose=False,
+                )
+            for result in script_results:
+                _report_result(result)
+                if SHOULD_WRITE_RECORDS:
+                    _RESULTS[result.name] = (
+                        result,
+                        package_name,
+                        version,
+                        commit,
+                        runner,
+                    )
+                    record_benchmark(
+                        task=result.name,
+                        source=result.source,
+                        script=str(script),
+                    )
+                results.append(result)
 
     if threshold is None:
         return
@@ -303,6 +368,13 @@ def check(script: str, threshold: float | None, no_run: bool, repeats: int) -> N
             for result in too_slow
         )
         raise click.ClickException(f"Profiling time exceeds threshold\n{details}")
+
+
+def _scripts_by_package(scripts: list[Path]) -> dict[str, list[Path]]:
+    grouped: dict[str, list[Path]] = {}
+    for script in scripts:
+        grouped.setdefault(package_name_from_path(script), []).append(script)
+    return grouped
 
 
 if __name__ == "__main__":
