@@ -227,7 +227,8 @@ def test_setup_creates_registry_with_expected_schema(monkeypatch):
     )
     assert all(feature.type.name == "LaminProfiler" for feature in features.values())
     assert all(
-        feature.type.uid == module.FEATURE_TYPE_UID for feature in features.values()
+        feature.type.uid == module.FEATURE_ROOT_TYPE_UID
+        for feature in features.values()
     )
     assert all(feature.type.is_type for feature in features.values())
     assert features["created_at"].values_through == "created_at"

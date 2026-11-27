@@ -4,8 +4,8 @@ BENCHMARKING_SCHEMA_ARTIFACT_NAME = "laminprofiler-benchmarks-artifact"
 BENCHMARKING_SCHEMA_ARTIFACT_UID = "3ARwY7IfXNxWu2qw"
 BENCHMARKING_SCHEMA_RECORD_NAME = "laminprofiler-benchmarks-record"
 BENCHMARKING_SCHEMA_RECORD_UID = "QlP3YCAkqOaJ1vHa"
-FEATURE_TYPE_NAME = "LaminProfiler"
-FEATURE_TYPE_UID = "uBBUYLh5VFbo"
+FEATURE_ROOT_TYPE_NAME = "LaminProfiler"
+FEATURE_ROOT_TYPE_UID = "uBBUYLh5VFbo"
 PRODUCTS_TYPE_UID = "tY22ouWHsJKDJaXL"
 GIT_COMMITS_SCHEMA_UID = "LLgPZodc1iazGcVv"
 BENCHMARKING_FEATURE_UIDS = {
@@ -22,14 +22,14 @@ PRODUCT_FEATURE_UID = "nc9f3tG4LUoF"
 
 
 def _get_or_create_feature_type() -> ln.Feature:
-    feature_type = ln.Feature.filter(uid=FEATURE_TYPE_UID).one_or_none()
+    feature_type = ln.Feature.filter(uid=FEATURE_ROOT_TYPE_UID).one_or_none()
     if feature_type is None:
         feature_type = ln.Feature.filter(
-            name=FEATURE_TYPE_NAME, is_type=True
+            name=FEATURE_ROOT_TYPE_NAME, is_type=True
         ).one_or_none()
     if feature_type is None:
-        feature_type = ln.Feature(name=FEATURE_TYPE_NAME, is_type=True)
-        feature_type.uid = FEATURE_TYPE_UID
+        feature_type = ln.Feature(name=FEATURE_ROOT_TYPE_NAME, is_type=True)
+        feature_type.uid = FEATURE_ROOT_TYPE_UID
         feature_type.save()
     return feature_type
 
