@@ -69,7 +69,7 @@ def _get_or_create_feature(
         if ln.Feature.filter(uid=uid).one_or_none() is None:
             feature.uid = uid
         return feature.save()
-    if feature.type != feature_type:
+    if feature.type_id != feature_type.id:
         feature.type = feature_type
         feature.save()
     return feature
