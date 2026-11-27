@@ -58,7 +58,7 @@ When a benchmark run writes records, laminprofiler:
 laminprofiler coverage coverage.xml --product lamindb
 ```
 
-The artifact has no key, `description="coverage"`, and `kind="laminprofiler"`. The GitCommits record stores `hash16`, `repo`, `coverage`, and `coverage_report`.
+The artifact has no key, `description="coverage"`, and `kind="laminprofiler"`. It is annotated with `commit_hash16`, the GitCommits record for this commit. That record stores `hash16`, `repo`, `coverage`, and `coverage_report`.
 
 ## Benchmarks
 

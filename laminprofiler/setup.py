@@ -16,6 +16,7 @@ FEATURE_UIDS = {
     "created_at": "nXiW5L1obr3u",
     "run": "z4SI35hBSvVw",
 }
+COMMIT_HASH16_UID = "tViF46horYOI"
 
 
 def _get_or_create_feature_type() -> ln.Feature:
@@ -135,7 +136,7 @@ def _base_features(feature_type: ln.Feature) -> tuple[list, list]:
     package_version = _get_or_create_feature("package_version", str, feature_type)
     duration_in_sec = _get_or_create_feature("duration_in_sec", float, feature_type)
     commit_hash16 = _get_or_create_feature(
-        "commit_hash16", git_commits_type(), feature_type, uid=None
+        "commit_hash16", git_commits_type(), feature_type, uid=COMMIT_HASH16_UID
     )
     runner_env = _get_or_create_feature("runner_env", str, feature_type)
     task_source_hash = _get_or_create_feature("task_source_hash", str, feature_type)

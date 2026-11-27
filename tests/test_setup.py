@@ -221,7 +221,7 @@ def test_setup_creates_registry_with_expected_schema(monkeypatch):
     assert features["run"].dtype == "Run.uid"
     assert features["runner_env"].dtype is str
     assert features["commit_hash16"].dtype.name == "GitCommits"
-    assert features["commit_hash16"].uid != "uaYdTQD761RE"
+    assert features["commit_hash16"].uid == module.COMMIT_HASH16_UID
     assert len([feature for feature in FakeFeature._store if feature.is_type]) == 1
     assert registry.schema is None
     assert package is not None
@@ -314,7 +314,7 @@ def test_commit_hash16_is_not_the_legacy_string_feature(monkeypatch):
     )
     assert commit is not legacy
     assert commit.dtype.name == "GitCommits"
-    assert commit.uid != legacy.uid
+    assert commit.uid == module.COMMIT_HASH16_UID
 
 
 def test_artifact_schema_adds_product_task_and_benchmark(monkeypatch):
@@ -327,3 +327,4 @@ def test_artifact_schema_adds_product_task_and_benchmark(monkeypatch):
     assert features["task_uid"].dtype is str
     assert features["benchmark"].dtype is dict
     assert features["commit_hash16"].dtype.name == "GitCommits"
+    assert features["commit_hash16"].uid == module.COMMIT_HASH16_UID
