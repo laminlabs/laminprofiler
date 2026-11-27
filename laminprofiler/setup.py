@@ -1,11 +1,13 @@
 import lamindb as ln
 
-BENCHMARKING_SCHEMA_ARTIFACT_NAME = "laminprofiler-benchmarks-artifact"
+BENCHMARKING_SCHEMA_ARTIFACT_NAME = "BenchmarksArtifact"
 BENCHMARKING_SCHEMA_ARTIFACT_UID = "3ARwY7IfXNxWu2qw"
-BENCHMARKING_SCHEMA_RECORD_NAME = "laminprofiler-benchmarks-record"
+BENCHMARKING_SCHEMA_RECORD_NAME = "BenchmarksRecord"
 BENCHMARKING_SCHEMA_RECORD_UID = "QlP3YCAkqOaJ1vHa"
 FEATURE_ROOT_TYPE_NAME = "LaminProfiler"
 FEATURE_ROOT_TYPE_UID = "uBBUYLh5VFbo"
+SCHEMA_ROOT_TYPE_NAME = "LaminProfiler"
+SCHEMA_ROOT_TYPE_UID = "RsBH0gBvJVp3GL2w"
 ROOT_FEATURE_UIDS = {
     "product": "nc9f3tG4LUoF",
     "commit_hash16": "tViF46horYOI",
@@ -32,6 +34,21 @@ BENCHMARKING_FEATURE_UIDS = {
     "created_at": "nXiW5L1obr3u",
     "run": "z4SI35hBSvVw",
 }
+
+
+def _get_or_create_schema_type() -> ln.Schema:
+    """`LaminProfiler` schema type for the benchmarking schemas."""
+    schema_type = ln.Schema.filter(uid=SCHEMA_ROOT_TYPE_UID).one_or_none()
+    if schema_type is None:
+        schema_type = ln.Schema.filter(
+            name=SCHEMA_ROOT_TYPE_NAME, is_type=True
+        ).one_or_none()
+    if schema_type is None:
+        schema_type = ln.Schema(name=SCHEMA_ROOT_TYPE_NAME, is_type=True)
+        # Schema.__init__ assigns a random uid. Replace it before the first save.
+        schema_type.uid = SCHEMA_ROOT_TYPE_UID
+        schema_type.save()
+    return schema_type
 
 
 def _get_or_create_feature_type() -> ln.Feature:
@@ -231,7 +248,11 @@ def ensure_git_commits_schema(
     """GitCommits schema, including its features and the shared product feature."""
     git_features = ensure_git_commit_features()
     product = product_feature() if feature is None else feature
+    schema_type = _get_or_create_schema_type()
     schema = ln.Schema.get(GIT_COMMITS_SCHEMA_UID)
+    type_changed = schema.type_id != schema_type.id
+    if type_changed:
+        schema.type = schema_type
     member_uids = {member.uid for member in schema.features.all()}
     # hash16 and product are required. The other schema features are optional.
     # benchmarks is a GitCommits feature and is not a member of this schema.
@@ -249,9 +270,10 @@ def ensure_git_commits_schema(
         # Schema.add(optional=False) is not implemented. Membership without an
         # optionals entry is what makes the feature required.
         schema.features.add(*missing_required)
-        schema.save(print_hash_mutation_warning=False)
     if missing_optional:
         schema.add(missing_optional, optional=True)
+    elif type_changed or missing_required:
+        schema.save(print_hash_mutation_warning=False)
     return schema
 
 
@@ -293,6 +315,7 @@ def _base_features(feature_type: ln.Feature) -> tuple[list, list]:
 
 
 def _sync_schema(name: str, required: list, optional: list, *, uid: str) -> ln.Schema:
+    schema_type = _get_or_create_schema_type()
     schema = ln.Schema.filter(uid=uid).one_or_none()
     if schema is None:
         schema = ln.Schema.filter(name=name).one_or_none()
@@ -300,13 +323,17 @@ def _sync_schema(name: str, required: list, optional: list, *, uid: str) -> ln.S
         schema = ln.Schema(
             features=[*required, *map(_optional, optional)],
             name=name,
+            type=schema_type,
         )
         # Schema.__init__ assigns a random uid. Replace it before the first save.
         schema.uid = uid
         return schema.save()
-    changed = schema.uid != uid or schema.name != name
+    changed = (
+        schema.uid != uid or schema.name != name or schema.type_id != schema_type.id
+    )
     schema.uid = uid
     schema.name = name
+    schema.type = schema_type
     existing = {feature.name for feature in schema.features.all()}
     missing_required = [feature for feature in required if feature.name not in existing]
     missing_optional = [feature for feature in optional if feature.name not in existing]

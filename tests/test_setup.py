@@ -92,20 +92,39 @@ class _Features:
 class FakeSchema:
     _store: dict[str, FakeSchema] = {}
     _by_uid: dict[str, FakeSchema] = {}
+    _next_id = 1
 
-    def __init__(self, *, features, name):
+    def __init__(self, *, features=None, name, is_type=False, type=None):
         self.name = name
+        self.is_type = is_type
+        self.id = FakeSchema._next_id
+        FakeSchema._next_id += 1
+        self.type = type
         self.uid = None
         self._features = []
-        for feature in features:
+        for feature in features or []:
             self._features.append(feature[0] if isinstance(feature, tuple) else feature)
         self.features = _Features(self._features)
 
+    @property
+    def type(self):
+        return self._type
+
+    @type.setter
+    def type(self, value):
+        self._type = value
+        self.type_id = None if value is None else value.id
+
     @classmethod
-    def filter(cls, *, name=None, uid=None):
+    def filter(cls, *, name=None, uid=None, is_type=None, type=None):
         if uid is not None:
             return Query(cls._by_uid.get(uid))
-        return Query(cls._store.get(name))
+        found = cls._store.get(name) if name is not None else None
+        if found is not None and is_type is not None and found.is_type != is_type:
+            found = None
+        if found is not None and type is not None and found.type != type:
+            found = None
+        return Query(found)
 
     def add(self, features, optional=True):
         items = features if isinstance(features, list) else [features]
@@ -185,6 +204,7 @@ def _load_setup(monkeypatch):
     FakeFeature._next_id = 1
     FakeSchema._store = {}
     FakeSchema._by_uid = {}
+    FakeSchema._next_id = 1
     FakeRecord._store = []
     fake_ln = types.SimpleNamespace(
         Feature=FakeFeature,
@@ -223,6 +243,9 @@ def test_setup_creates_registry_with_expected_schema(monkeypatch):
     assert schema is not None
     assert schema.name == module.BENCHMARKING_SCHEMA_RECORD_NAME
     assert schema.uid == module.BENCHMARKING_SCHEMA_RECORD_UID
+    assert schema.type.name == module.SCHEMA_ROOT_TYPE_NAME
+    assert schema.type.uid == module.SCHEMA_ROOT_TYPE_UID
+    assert schema.type.is_type
     features = {feature.name: feature for feature in schema.features.all()}
     assert set(features) == set(module.BENCHMARKING_FEATURE_UIDS) | {"commit_hash16"}
     pinned = {name: features[name] for name in module.BENCHMARKING_FEATURE_UIDS}
@@ -359,6 +382,8 @@ def test_commit_hash16_is_not_the_legacy_string_feature(monkeypatch):
 def test_git_commit_features_are_created(monkeypatch):
     module = _load_setup(monkeypatch)
     schema = module.ensure_git_commits_schema()
+    assert schema.type.uid == module.SCHEMA_ROOT_TYPE_UID
+    assert schema.type.is_type
     features = {feature.name: feature for feature in schema.features.all()}
     hash16 = features["hash16"]
     assert hash16.uid == module.GIT_COMMITS_FEATURE_UIDS["hash16"]
@@ -394,6 +419,8 @@ def test_artifact_schema_adds_product_task_and_benchmark(monkeypatch):
     features = {feature.name: feature for feature in schema.features.all()}
     assert schema.name == module.BENCHMARKING_SCHEMA_ARTIFACT_NAME
     assert schema.uid == module.BENCHMARKING_SCHEMA_ARTIFACT_UID
+    assert schema.type.uid == module.SCHEMA_ROOT_TYPE_UID
+    assert schema.type.is_type
     assert features["product"].dtype.uid == "tY22ouWHsJKDJaXL"
     assert features["product"].uid == module.ROOT_FEATURE_UIDS["product"]
     assert features["product"].type.uid == module.FEATURE_ROOT_TYPE_UID
