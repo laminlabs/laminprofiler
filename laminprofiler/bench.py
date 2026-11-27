@@ -253,21 +253,19 @@ def _run_pytest(scripts: list[Path], *, keyword: str | None) -> list[TaskResult]
             "--noconftest",
             "--rootdir",
             str(rootdir),
-            "-s",
             "--tb=short",
-            "-q",
+            "-v",
+            "-rP",
         ]
         if keyword is not None:
             command.extend(["-k", keyword])
+        # Inherit the terminal. Capturing and replaying stdout, then stderr,
+        # splits pytest's report from the benchmark table.
         completed = subprocess.run(
             command,
             env=env,
-            capture_output=True,
-            text=True,
             check=False,
         )
-        sys.stdout.write(completed.stdout)
-        sys.stderr.write(completed.stderr)
         # 5 is pytest's "no tests collected".
         if completed.returncode not in (0, 5):
             raise subprocess.CalledProcessError(completed.returncode, command)

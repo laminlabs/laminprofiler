@@ -64,14 +64,6 @@ def collect_scripts(paths: tuple[Path, ...]) -> list[Path]:
     return scripts
 
 
-def _display_path(path: Path) -> Path:
-    resolved = path.resolve()
-    try:
-        return resolved.relative_to(Path.cwd())
-    except ValueError:
-        return resolved
-
-
 def _report_result(result, override: float | None) -> None:
     print(f"\n# {result.name}\n{result.source}\n")
     print("pyinstrument profile (not included in the median)")
@@ -261,10 +253,6 @@ def benchmark(
 ) -> None:
     """Measure profiling tasks and store one run."""
     scripts = collect_scripts(tuple(Path(path) for path in paths))
-    if len(scripts) > 1:
-        print(f"Running {len(scripts)} profiling files")
-        for script in scripts:
-            print(f"# {_display_path(script)}")
     try:
         results = run_benchmarks(scripts)
     except RuntimeError as error:
