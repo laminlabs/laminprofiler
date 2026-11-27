@@ -57,9 +57,14 @@ def function_source(script: Path, name: str) -> str:
     raise LookupError(f"Function {name} not found in {script}")
 
 
+def task_name(function_name: str) -> str:
+    """Registry name for a collected `profile_*` function."""
+    return function_name.removeprefix("profile_")
+
+
 def registry_names(script: Path) -> list[str]:
-    """`profile_*` functions a profiling file contributes to the registry."""
-    return profile_function_names(script)
+    """Task names a profiling file contributes to the registry."""
+    return [task_name(name) for name in profile_function_names(script)]
 
 
 def profiling_scripts(path: Path) -> list[Path]:
@@ -222,7 +227,7 @@ def _run_pytest(scripts: list[Path], *, keyword: str | None) -> list[TaskResult]
             source = function_source(script, name.split("[", 1)[0])
             results.append(
                 TaskResult(
-                    name=name,
+                    name=task_name(name),
                     source=source,
                     duration=duration,
                     profile_text=profile_text,
@@ -268,7 +273,7 @@ def _run_import_benchmark(script: Path, name: str) -> TaskResult:
         "median": median,
     }
     return TaskResult(
-        name=name,
+        name=task_name(name),
         source=source,
         duration=median,
         profile_text=profile.stdout,

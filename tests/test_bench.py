@@ -22,7 +22,7 @@ def test_registry_names_follow_profile_functions(tmp_path: Path):
         "    return helper()\n"
     )
     assert profile_function_names(script) == ["profile_curate_simple_dataframe"]
-    assert registry_names(script) == ["profile_curate_simple_dataframe"]
+    assert registry_names(script) == ["curate_simple_dataframe"]
 
 
 def test_registry_names_are_empty_without_profile_functions(tmp_path: Path):
@@ -45,7 +45,7 @@ def test_function_benchmark_median_excludes_import_and_saves_a_profile(tmp_path:
     results = run_benchmarks(script)
     assert len(results) == 1
     result = results[0]
-    assert result.name == "profile_fast"
+    assert result.name == "fast"
     assert result.source.startswith("def profile_fast")
     assert result.duration < 0.2
     assert "Duration:" in result.profile_text
@@ -68,7 +68,7 @@ def test_import_benchmark_uses_a_fresh_process_per_round(tmp_path: Path):
     results = run_benchmarks(script)
     assert len(results) == 1
     result = results[0]
-    assert result.name == "profile_import_marker"
+    assert result.name == "import_marker"
     assert result.duration > 0
     assert "Duration:" in result.profile_text
     pids = [line for line in marker.read_text().splitlines() if line]

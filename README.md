@@ -31,7 +31,7 @@ When a run writes records, laminprofiler:
 - registers those features under the `LaminProfiler` feature type
 - creates (or reuses) the top-level `LaminProfiler` record type
 - creates (or reuses) the package type (`<repo_name>`, normalized with `_`)
-- creates one task type per `profile_*` function
+- creates one task type per `profile_*` function, without the `profile_` prefix
 
 ## Benchmarks
 
