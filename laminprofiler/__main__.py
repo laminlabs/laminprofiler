@@ -186,23 +186,22 @@ def _save_coverage_record(coverage_xml: Path, product_name: str) -> None:
     product = _product(product_name)
     extra = github_run_extra_data()
     git_commit_record = ensure_git_commit(hash16, product)
+    git_commit_record.features.update_values(
+        {
+            "coverage": ratio,
+        }
+    )
     schema = get_or_create_artifact_schema()
     commit_hash16 = next(
         feature for feature in schema.features.all() if feature.uid == COMMIT_HASH16_UID
     )
-    artifact = ln.Artifact(
+    ln.Artifact(
         coverage_xml,
         description=COVERAGE_DESCRIPTION,
         kind=ARTIFACT_KIND,
         extra_data=extra,
         features={commit_hash16: git_commit_record},
     ).save()
-    git_commit_record.features.update_values(
-        {
-            "coverage": ratio,
-            "coverage_report": artifact,
-        }
-    )
 
 
 @click.group(no_args_is_help=True)
