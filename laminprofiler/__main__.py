@@ -1,7 +1,7 @@
 import importlib
+import json
 import os
 import subprocess
-import tempfile
 from pathlib import Path
 
 import click
@@ -77,13 +77,16 @@ _RESULTS: dict[str, tuple[TaskResult, str, str, str | None, str | None]] = {}
 
 
 @ln.step()
-def record_benchmark(task: str, source: str, script: str) -> None:
+def record_benchmark(task: str, source: str) -> None:
     """Save one measurement. `source` is the code that ran."""
     result, package_name, version, commit, runner = _RESULTS[task]
     if source != result.source:
         raise click.ClickException(f"Source for {task} does not match the measurement")
     package = ln.Record.get(name=package_name, type__name="LaminProfiler", is_type=True)
     task_type = ln.Record.get(name=task, type=package, is_type=True)
+    extra_data = None
+    if result.benchmark_json is not None:
+        extra_data = {"benchmark": json.loads(result.benchmark_json)}
     ln.Record(
         name=result.name,
         features={
@@ -95,25 +98,8 @@ def record_benchmark(task: str, source: str, script: str) -> None:
             "python_version": result.python_version,
         },
         type=task_type,
+        extra_data=extra_data,
     ).save()
-    with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
-        label = result.uid or task
-        profile_path = root / "pyinstrument.txt"
-        profile_path.write_text(result.profile_text)
-        ln.Artifact(
-            profile_path,
-            key=f"laminprofiler/{package_name}/{label}/pyinstrument.txt",
-            description=f"pyinstrument profile of {task} in {script}",
-        ).save()
-        if result.benchmark_json is not None:
-            stats_path = root / "benchmark.json"
-            stats_path.write_text(result.benchmark_json)
-            ln.Artifact(
-                stats_path,
-                key=f"laminprofiler/{package_name}/{label}/benchmark.json",
-                description=f"Timing stats for {task}",
-            ).save()
 
 
 def _report_result(result: TaskResult, override: float | None) -> None:
@@ -203,7 +189,6 @@ def main(paths: tuple[str, ...], threshold: float | None) -> None:
                 record_benchmark(
                     task=result.name,
                     source=result.source,
-                    script=result.path,
                 )
 
     too_slow = tasks_over_budget(results, threshold)
