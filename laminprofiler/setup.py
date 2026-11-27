@@ -1,13 +1,15 @@
 import lamindb as ln
 
-LAMINPROFILER_SCHEMA_NAME = "laminprofiler"
+LAMINPROFILER_SCHEMA_NAME = "laminprofiler-records"
+LAMINPROFILER_ARTIFACT_SCHEMA_NAME = "laminprofiler-artifact"
 FEATURE_TYPE_NAME = "LaminProfiler"
 FEATURE_TYPE_UID = "uBBUYLh5VFbo"
-# Uids registered on laminlabs/lamindb-benchmarks.
+PRODUCTS_TYPE_UID = "tY22ouWHsJKDJaXL"
+GIT_COMMITS_SCHEMA_UID = "LLgPZodc1iazGcVv"
+# Uids registered for the scalar measurement features.
 FEATURE_UIDS = {
     "package_version": "3jrklzyM82cU",
     "duration_in_sec": "QsC24kltUffN",
-    "commit_hash16": "uaYdTQD761RE",
     "runner_env": "fJUXc02btoaI",
     "task_source_hash": "rnr6tCzZyZMR",
     "python_version": "DbXIpju3hjt0",
@@ -36,19 +38,36 @@ def _is_str_feature(feature: ln.Feature) -> bool:
     return dtype is str or dtype == "str"
 
 
-def _find_feature(name: str, uid: str, feature_type: ln.Feature, dtype):
-    candidates = (
-        ln.Feature.filter(uid=uid).one_or_none(),
-        ln.Feature.filter(name=name, type=feature_type).one_or_none(),
-        ln.Feature.filter(name=name, type=None).one_or_none(),
-    )
-    for feature in candidates:
-        if feature is None:
-            continue
-        # The benchmarks instance still has a categorical runner_env under this uid.
-        if dtype is str and not _is_str_feature(feature):
-            continue
-        return feature
+def _stored_dtype(feature: ln.Feature):
+    dtype = getattr(feature, "dtype_as_str", None)
+    if dtype is None:
+        dtype = getattr(feature, "dtype", None)
+    return dtype
+
+
+def _dtype_matches(feature: ln.Feature, dtype) -> bool:
+    if dtype is str:
+        return _is_str_feature(feature)
+    if dtype is dict:
+        stored = _stored_dtype(feature)
+        return stored is dict or stored == "dict"
+    if getattr(dtype, "is_type", False):
+        stored = feature.dtype
+        return stored is dtype or getattr(stored, "uid", None) == dtype.uid
+    stored = _stored_dtype(feature)
+    return stored == dtype or stored is dtype
+
+
+def _find_feature(name: str, uid: str | None, feature_type: ln.Feature, dtype):
+    if uid is not None:
+        feature = ln.Feature.filter(uid=uid).one_or_none()
+        # A pinned uid can still point at an older dtype, such as categorical runner_env.
+        if feature is not None and (dtype is not str or _is_str_feature(feature)):
+            return feature
+    for scope in (feature_type, None):
+        for feature in ln.Feature.filter(name=name, type=scope):
+            if _dtype_matches(feature, dtype):
+                return feature
     return None
 
 
@@ -58,15 +77,17 @@ def _get_or_create_feature(
     feature_type: ln.Feature,
     *,
     values_through: str | None = None,
+    uid: str | None = None,
 ) -> ln.Feature:
-    uid = FEATURE_UIDS[name]
+    if uid is None and name in FEATURE_UIDS:
+        uid = FEATURE_UIDS[name]
     feature = _find_feature(name, uid, feature_type, dtype)
     if feature is None:
         kwargs = {"name": name, "dtype": dtype, "type": feature_type}
         if values_through is not None:
             kwargs["values_through"] = values_through
         feature = ln.Feature(**kwargs)
-        if ln.Feature.filter(uid=uid).one_or_none() is None:
+        if uid is not None and ln.Feature.filter(uid=uid).one_or_none() is None:
             feature.uid = uid
         return feature.save()
     if feature.type_id != feature_type.id:
@@ -79,11 +100,43 @@ def _optional(feature: ln.Feature):
     return feature.with_config(optional=True)
 
 
-def get_or_create_schema() -> ln.Schema:
-    feature_type = _get_or_create_feature_type()
+def products_type() -> ln.Record:
+    """Products record type on lamindb-dev."""
+    return ln.Record.get(PRODUCTS_TYPE_UID)
+
+
+def git_commits_type() -> ln.Record:
+    """GitCommits record type whose schema is `LLgPZodc1iazGcVv`."""
+    schema = ln.Schema.get(GIT_COMMITS_SCHEMA_UID)
+    return ln.Record.get(schema=schema, is_type=True)
+
+
+def require_product(name: str) -> ln.Record:
+    """Look up a Products record. Laminprofiler does not create products."""
+    product = ln.Record.filter(name=name, type=products_type()).one_or_none()
+    if product is None:
+        raise LookupError(f"No Products record named {name!r}")
+    return product
+
+
+def ensure_git_commit(hash16: str, product: ln.Record | None = None) -> ln.Record:
+    """Return the GitCommits record named with this hash, creating it if needed."""
+    git_commits = git_commits_type()
+    record = ln.Record.filter(name=hash16, type=git_commits).one_or_none()
+    if record is not None:
+        return record
+    features = {"hash16": hash16}
+    if product is not None:
+        features["repo"] = product
+    return ln.Record(name=hash16, type=git_commits, features=features).save()
+
+
+def _base_features(feature_type: ln.Feature) -> tuple[list, list]:
     package_version = _get_or_create_feature("package_version", str, feature_type)
     duration_in_sec = _get_or_create_feature("duration_in_sec", float, feature_type)
-    commit_hash16 = _get_or_create_feature("commit_hash16", str, feature_type)
+    commit_hash16 = _get_or_create_feature(
+        "commit_hash16", git_commits_type(), feature_type, uid=None
+    )
     runner_env = _get_or_create_feature("runner_env", str, feature_type)
     task_source_hash = _get_or_create_feature("task_source_hash", str, feature_type)
     python_version = _get_or_create_feature("python_version", str, feature_type)
@@ -101,20 +154,45 @@ def get_or_create_schema() -> ln.Schema:
     )
     required = [package_version, duration_in_sec, created_at, run]
     optional = [commit_hash16, runner_env, task_source_hash, python_version]
-    schema = ln.Schema.filter(name=LAMINPROFILER_SCHEMA_NAME).one_or_none()
+    return required, optional
+
+
+def _sync_schema(name: str, required: list, optional: list) -> ln.Schema:
+    schema = ln.Schema.filter(name=name).one_or_none()
     if schema is None:
-        schema = ln.Schema(
+        return ln.Schema(
             features=[*required, *map(_optional, optional)],
-            name=LAMINPROFILER_SCHEMA_NAME,
+            name=name,
         ).save()
-        return schema
     existing = {feature.name for feature in schema.features.all()}
-    missing = [
-        feature for feature in [*required, *optional] if feature.name not in existing
-    ]
-    if missing:
-        schema.add(missing, optional=True)
+    missing_required = [feature for feature in required if feature.name not in existing]
+    missing_optional = [feature for feature in optional if feature.name not in existing]
+    if missing_required:
+        schema.add(missing_required, optional=False)
+    if missing_optional:
+        schema.add(missing_optional, optional=True)
     return schema
+
+
+def get_or_create_schema() -> ln.Schema:
+    feature_type = _get_or_create_feature_type()
+    required, optional = _base_features(feature_type)
+    return _sync_schema(LAMINPROFILER_SCHEMA_NAME, required, optional)
+
+
+def get_or_create_artifact_schema() -> ln.Schema:
+    """Schema for one benchmark run: record features plus product, task, and benchmark."""
+    feature_type = _get_or_create_feature_type()
+    required, optional = _base_features(feature_type)
+    product = _get_or_create_feature("product", products_type(), feature_type, uid=None)
+    task_name = _get_or_create_feature("task_name", str, feature_type, uid=None)
+    task_uid = _get_or_create_feature("task_uid", str, feature_type, uid=None)
+    benchmark = _get_or_create_feature("benchmark", dict, feature_type, uid=None)
+    return _sync_schema(
+        LAMINPROFILER_ARTIFACT_SCHEMA_NAME,
+        [*required, product, task_name],
+        [*optional, task_uid, benchmark],
+    )
 
 
 def get_or_create_package(

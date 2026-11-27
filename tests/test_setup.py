@@ -7,10 +7,20 @@ import types
 
 class Query:
     def __init__(self, record):
-        self._record = record
+        if isinstance(record, list):
+            self._records = record
+        elif record is None:
+            self._records = []
+        else:
+            self._records = [record]
 
     def one_or_none(self):
-        return self._record
+        if len(self._records) > 1:
+            raise AssertionError(self._records)
+        return self._records[0] if self._records else None
+
+    def __iter__(self):
+        return iter(self._records)
 
 
 class FakeFeature:
@@ -45,9 +55,7 @@ class FakeFeature:
             for item in cls._store
             if all(getattr(item, key) == value for key, value in kwargs.items())
         ]
-        if len(hits) > 1:
-            raise AssertionError(kwargs)
-        return Query(hits[0] if hits else None)
+        return Query(hits)
 
     def with_config(self, *, optional=False):
         assert optional
@@ -73,6 +81,7 @@ class _Features:
 
 class FakeSchema:
     _store: dict[str, FakeSchema] = {}
+    _by_uid: dict[str, FakeSchema] = {}
 
     def __init__(self, *, features, name):
         self.name = name
@@ -86,14 +95,24 @@ class FakeSchema:
         return Query(cls._store.get(name))
 
     def add(self, features, optional=True):
-        assert optional
         items = features if isinstance(features, list) else [features]
         self._features.extend(items)
         return self
 
     def save(self):
         self.__class__._store[self.name] = self
+        if getattr(self, "uid", None) is not None:
+            self.__class__._by_uid[self.uid] = self
         return self
+
+    @classmethod
+    def get(cls, idlike=None, **kwargs):
+        schema = cls._by_uid.get(idlike)
+        if schema is None:
+            schema = cls(features=[], name="GitCommits")
+            schema.uid = idlike
+            cls._by_uid[idlike] = schema
+        return schema
 
 
 class FakeRecord:
@@ -122,6 +141,25 @@ class FakeRecord:
         )
         return Query(record)
 
+    @classmethod
+    def get(cls, idlike=None, **kwargs):
+        if idlike == "tY22ouWHsJKDJaXL":
+            return cls._type(name="Products", uid=idlike)
+        if kwargs.get("is_type") and kwargs.get("schema") is not None:
+            return cls._type(
+                name="GitCommits", uid="GitCommitsType", schema=kwargs["schema"]
+            )
+        raise AssertionError((idlike, kwargs))
+
+    @classmethod
+    def _type(cls, *, name, uid, schema=None):
+        found = next((item for item in cls._store if item.uid == uid), None)
+        if found is not None:
+            return found
+        record = cls(name=name, is_type=True, schema=schema)
+        record.uid = uid
+        return record.save()
+
     def save(self):
         self.schema_id = 1 if self.schema is not None else None
         if self not in self.__class__._store:
@@ -133,6 +171,7 @@ def _load_setup(monkeypatch):
     FakeFeature._store = []
     FakeFeature._next_id = 1
     FakeSchema._store = {}
+    FakeSchema._by_uid = {}
     FakeRecord._store = []
     fake_ln = types.SimpleNamespace(
         Feature=FakeFeature,
@@ -168,8 +207,9 @@ def test_setup_creates_registry_with_expected_schema(monkeypatch):
     assert schema is not None
     assert schema.name == module.LAMINPROFILER_SCHEMA_NAME
     features = {feature.name: feature for feature in schema.features.all()}
-    assert set(features) == set(module.FEATURE_UIDS)
-    assert all(features[name].uid == uid for name, uid in module.FEATURE_UIDS.items())
+    assert set(features) == set(module.FEATURE_UIDS) | {"commit_hash16"}
+    pinned = {name: features[name] for name in module.FEATURE_UIDS}
+    assert all(pinned[name].uid == uid for name, uid in module.FEATURE_UIDS.items())
     assert all(feature.type.name == "LaminProfiler" for feature in features.values())
     assert all(
         feature.type.uid == module.FEATURE_TYPE_UID for feature in features.values()
@@ -180,6 +220,8 @@ def test_setup_creates_registry_with_expected_schema(monkeypatch):
     assert features["run"].values_through == "run"
     assert features["run"].dtype == "Run.uid"
     assert features["runner_env"].dtype is str
+    assert features["commit_hash16"].dtype.name == "GitCommits"
+    assert features["commit_hash16"].uid != "uaYdTQD761RE"
     assert len([feature for feature in FakeFeature._store if feature.is_type]) == 1
     assert registry.schema is None
     assert package is not None
@@ -203,7 +245,7 @@ def test_setup_adds_missing_optional_features(monkeypatch):
     assert schema is existing
     assert {feature.name for feature in schema.features.all()} == set(
         module.FEATURE_UIDS
-    )
+    ) | {"commit_hash16"}
     assert package_version.type.name == "LaminProfiler"
     assert package_version.type.is_type
     assert duration.type.name == "LaminProfiler"
@@ -258,3 +300,30 @@ def test_setup_keeps_a_task_uid_when_the_name_changes(monkeypatch):
         ).one_or_none()
         is None
     )
+
+
+def test_commit_hash16_is_not_the_legacy_string_feature(monkeypatch):
+    module = _load_setup(monkeypatch)
+    legacy = FakeFeature("commit_hash16", str).save()
+    legacy.uid = "uaYdTQD761RE"
+
+    schema = module.get_or_create_schema()
+
+    commit = next(
+        feature for feature in schema.features.all() if feature.name == "commit_hash16"
+    )
+    assert commit is not legacy
+    assert commit.dtype.name == "GitCommits"
+    assert commit.uid != legacy.uid
+
+
+def test_artifact_schema_adds_product_task_and_benchmark(monkeypatch):
+    module = _load_setup(monkeypatch)
+    schema = module.get_or_create_artifact_schema()
+    features = {feature.name: feature for feature in schema.features.all()}
+    assert schema.name == "laminprofiler-artifact"
+    assert features["product"].dtype.uid == "tY22ouWHsJKDJaXL"
+    assert features["task_name"].dtype is str
+    assert features["task_uid"].dtype is str
+    assert features["benchmark"].dtype is dict
+    assert features["commit_hash16"].dtype.name == "GitCommits"
