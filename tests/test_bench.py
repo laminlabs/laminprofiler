@@ -192,3 +192,86 @@ def test_package_name_from_nearest_project_root(tmp_path: Path):
     script.write_text("x = 1\n")
     assert package_name_from_path(script, cwd=tmp_path) == "my_package"
     assert package_name_from_path(script_dir, cwd=tmp_path) == "my_package"
+
+
+def test_measurement_row_carries_task_product_and_benchmark():
+    from datetime import datetime, timezone
+
+    from laminprofiler.output import measurement_row
+
+    created_at = datetime(2026, 11, 27, tzinfo=timezone.utc)
+    fast = TaskResult(
+        name="curate_simple_dataframe",
+        source="def profile_curate_simple_dataframe():\n    pass\n",
+        duration=0.08,
+        profile_text="",
+        benchmark_json='{"median": 0.08}',
+        source_hash="abc",
+        python_version="3.12.0",
+        path="curate.py",
+        uid="k5F8p2Q1nX9a",
+    )
+    plain = TaskResult(
+        name="import_lamindb",
+        source="",
+        duration=1.2,
+        profile_text="",
+        benchmark_json=None,
+        source_hash="def",
+        python_version="3.12.0",
+        path="import_lamindb.py",
+    )
+    curated = measurement_row(
+        fast,
+        product="lamindb",
+        package_version="2.13a1",
+        commit_hash16="487b32cddcc4f0ef",
+        runner_env="github_hosted",
+        created_at=created_at,
+        run="iqwdAC2ZPpljcgj",
+    )
+    imported = measurement_row(
+        plain,
+        product="lamindb",
+        package_version="2.13a1",
+        commit_hash16=None,
+        runner_env=None,
+        created_at=created_at,
+        run="iqwdAC2ZPpljcgj",
+    )
+    assert curated["product"] == "lamindb"
+    assert curated["task_name"] == "curate_simple_dataframe"
+    assert curated["task_uid"] == "k5F8p2Q1nX9a"
+    assert curated["created_at"] is created_at
+    assert curated["run"] == "iqwdAC2ZPpljcgj"
+    assert curated["benchmark"] == {"median": 0.08}
+    assert curated["commit_hash16"] == "487b32cddcc4f0ef"
+    assert imported["task_uid"] is None
+    assert imported["benchmark"] is None
+    assert imported["commit_hash16"] is None
+
+
+def test_record_registry_is_requested_only_for_records_output():
+    from laminprofiler.output import record_registry_requested
+
+    assert record_registry_requested("records") is True
+    assert record_registry_requested("parquet") is False
+
+
+def test_github_run_id_is_stored_only_when_actions_sets_it(monkeypatch):
+    from laminprofiler.output import github_run_extra_data
+
+    monkeypatch.delenv("GITHUB_RUN_ID", raising=False)
+    assert github_run_extra_data() is None
+    monkeypatch.setenv("GITHUB_RUN_ID", "4242")
+    assert github_run_extra_data() == {"gh_run_id": "4242"}
+
+
+def test_coverage_ratio_reads_line_counts(tmp_path: Path):
+    from laminprofiler.output import coverage_ratio
+
+    report = tmp_path / "coverage.xml"
+    report.write_text(
+        '<coverage lines-covered="80" lines-valid="100" line-rate="0.8"></coverage>\n'
+    )
+    assert coverage_ratio(report) == 0.8
