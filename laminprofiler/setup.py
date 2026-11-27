@@ -17,6 +17,7 @@ FEATURE_UIDS = {
     "run": "z4SI35hBSvVw",
 }
 COMMIT_HASH16_UID = "tViF46horYOI"
+PRODUCT_FEATURE_UID = "nc9f3tG4LUoF"
 
 
 def _get_or_create_feature_type() -> ln.Feature:
@@ -128,7 +129,7 @@ def ensure_git_commit(hash16: str, product: ln.Record | None = None) -> ln.Recor
         return record
     features = {"hash16": hash16}
     if product is not None:
-        features["repo"] = product
+        features["product"] = product
     return ln.Record(name=hash16, type=git_commits, features=features).save()
 
 
@@ -185,7 +186,9 @@ def get_or_create_artifact_schema() -> ln.Schema:
     """Schema for one benchmark run: record features plus product, task, and benchmark."""
     feature_type = _get_or_create_feature_type()
     required, optional = _base_features(feature_type)
-    product = _get_or_create_feature("product", products_type(), feature_type, uid=None)
+    product = _get_or_create_feature(
+        "product", products_type(), feature_type, uid=PRODUCT_FEATURE_UID
+    )
     task_name = _get_or_create_feature("task_name", str, feature_type, uid=None)
     task_uid = _get_or_create_feature("task_uid", str, feature_type, uid=None)
     benchmark = _get_or_create_feature("benchmark", dict, feature_type, uid=None)
